@@ -2,6 +2,8 @@
 #   but shifted over one and the last character is now the first.
 # The keyboard module provided much help in capturing the keys necessary.
 # This code is not as fluid as the initial idea, but work will be done to make it so.
+# NOTE!!!! The file will need to be run as an administrator as keyboard can log keystrokes.
+#    _darwinkeyboard.py line 420 is the offender. Maybe you can figure a way around it...
 
 from time import sleep
 import keyboard
