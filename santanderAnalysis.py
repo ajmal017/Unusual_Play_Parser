@@ -37,19 +37,6 @@ for tr in table_rows:
         if "." in d:
             d = float(d)
 
-        # if "--" == d:
-        #     d = float(0)
-        # if "$" in d:
-        #     d = d.replace('$', '')
-        # if "," in d:
-        #     d = d.replace(',', '')
-        # if "(" in d:
-        #     d = d.replace('(', '')
-        # if ")" in d:
-        #     d = d.replace(')', '')
-        # if "." in d:
-        #     d = float(d)
-
         table[tableLabels[count]].append(d)
         count += 1
 
