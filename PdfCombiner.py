@@ -42,11 +42,9 @@ for name in folders:
         reader4 = pypdf.PdfFileReader("YellowPacket0003.pdf")
         reader5 = pypdf.PdfFileReader("YellowPacket0004.pdf")
 
-        def combinePdf(pdf1, pdf2):
-
-
-        # pdfFile1 = open("", "rb")
-        # pdfFile2 = open("", "rb")
+        def combinePdf(pdfName1, pdfName2):
+        # pdfFile1 = open(pdfName1, "rb")
+        # pdfFile2 = open(pdfName2, "rb")
         # reader1 = pypdf.PdfFileReader(pdfFile1)
         # reader2 = pypdf.PdfFileReader(pdfFile2)
         # writer = pypdf.PdfFileWriter()
@@ -54,8 +52,6 @@ for name in folders:
         # for pageNum in range(reader1.numPages):
         #     page = reader1.getPage(pageNum)
         #     writer.addPage(pageNum)
-        #
-        # for pageNum in range(reader2.numPages):
         #     page = reader2.getPage(pageNum)
         #     writer.addPage(pageNum)
         #
