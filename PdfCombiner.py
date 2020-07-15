@@ -2,6 +2,38 @@
 import os, PyPDF2 as pypdf
 from pathlib import Path
 
+
+def combinePdf(pdf_name1, pdf_name2):
+    print(pdf_name1, " + ", pdf_name2, end = "")
+    pdf_file1 = open(pdf_name1, "rb")
+    pdf_file2 = open(pdf_name2, "rb")
+    reader1 = pypdf.PdfFileReader(pdf_file1)
+    reader2 = pypdf.PdfFileReader(pdf_file2)
+    writer = pypdf.PdfFileWriter()
+
+    for pageNum in range(reader1.numPages):
+        pageNum = reader1.getPage(pageNum)
+        writer.addPage(pageNum)
+        pageNum = reader2.getPage(pageNum)
+        writer.addPage(pageNum)
+
+    if not os.path.exists("/Users/X/Uncompressed/Final/YellowPacket1.pdf"):
+        if (os.path.exists("/Users/X/Uncompressed/Final/YellowPacket.pdf")):
+            outputFile = open("/Users/X/Uncompressed/Final/YellowPacket1.pdf", "wb")
+        else:
+            outputFile = open("/Users/X/Uncompressed/Final/YellowPacket.pdf", "wb")
+    else:
+        outputFile = open("/Users/X/Uncompressed/Final/YellowPacket!.pdf")
+
+        writer.write(outputFile)
+        outputFile.close()
+        pdf_file1.close()
+        pdf_file2.close()
+
+    print(" = ", outputFile.name)
+    return outputFile.name
+
+
 folders = []
 folderBase = "/Users/X/Uncompressed"
 os.chdir(folderBase)
@@ -12,12 +44,12 @@ for name in os.listdir():
 
 folders.sort()
 
-print("Folders:")
-
-for name in folders:
-    print(name)
-
-print("-------------------")
+# print("Folders:")
+#
+# for name in folders:
+#     print(name)
+#
+# print("-------------------")
 
 # The folder name will be the name of the resulting pdf
 # Open folders
@@ -25,48 +57,22 @@ for name in folders:
     os.chdir(folderBase + '/' + name)
     files = {"FileName" : [], "PdfObject" : [], "BookNumber" : [], "StartPage" : [], "EndPage" : [], "EvenOdd" : []}
 
+    # print("------", name, "-----------------------------")
     for file in os.listdir():
-        if os.path.isfile(file):
+        if os.path.isfile(file) and file.endswith(".pdf"):
             files["FileName"].append(file)
+            print(">>>>>>", file)
 
-    # files.sort()
-    for file in files:
-        print(file, end = '\n')
-
-    if name == "Yellow":  # Files are organized differently
+    if name == "YellowPacket":  # Files are organized differently
         # Extract number from pdf file name or sort
         # The first one has no number
-
-        def combinePdf(pdfName1, pdfName2):
-            if not os.path.exists("/Users/X/Uncompressed/Final/YellowPacket1.pdf"):
-                pdfFile1 = open(pdfName1, "rb")
-                pdfFile2 = open(pdfName2, "rb")
-                reader1 = pypdf.PdfFileReader(pdfFile1)
-                reader2 = pypdf.PdfFileReader(pdfFile2)
-                writer = pypdf.PdfFileWriter()
-
-                for pageNum in range(reader1.numPages):
-                    pageNum = reader1.getPage(pageNum)
-                    writer.addPage(pageNum)
-                    pageNum = reader2.getPage(pageNum)
-                    writer.addPage(pageNum)
-
-                if(os.path.exists("/Users/X/Uncompressed/Final/YellowPacket.pdf")):
-                    outputFile = open("/Users/X/Uncompressed/Final/YellowPacket1.pdf", "wb")
-                else:
-                    outputFile = open("/Users/X/Uncompressed/Final/YellowPacket.pdf", "wb")
-            else:
-
-                writer.write(outputFile)
-                outputFile.close()
-                pdfFile1.close()
-                pdfFile2.close()
-
-
-            return("/Users/X/Uncompressed/Final/YellowPacket.pdf")
+        print("......................")
 
         # Should combine 1 with 0, 3 with 2 and the combination of those two with 4 to be the new pdf.
-        combinePdf((combinePdf(files["FileName"][0:2]), combinePdf(files["FileName"][3:4])), files["FileName"][4])
+        # combinePdf(
+       # print(type(files["FileName"][0]))
+        combinePdf(files["FileName"][0], files["FileName"][2])
+        # combinePdf(files["FileName"][2:4]))
 
 
 
