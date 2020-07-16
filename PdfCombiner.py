@@ -25,16 +25,13 @@ logging.debug("-------------------")
 # Open folders
 for name in folders:
     os.chdir(folderBase + '/' + name)
-    files = {"FileName" : [], "PdfObject" : [], "BookNumber" : [], "StartPage" : [], "EndPage" : [], "EvenOdd" : []}
+    files = {"FileName": [], "PdfObject": [], "BookNumber": [], "StartPage": [], "EndPage": [], "EvenOdd": []}
 
-    logging.debug("------" + str(name) + "-----------------------------")
     for file in os.listdir():
         if os.path.isfile(file) and file.endswith(".pdf"):
             files["FileName"].append(file)
-            logging.debug(">>>>>>" + str(file))
 
     if name == "YellowPacket":  # Files are organized differently, needs special care
-        logging.debug("......................")
 
         writer = pypdf.PdfFileWriter()
 
@@ -51,29 +48,40 @@ for name in folders:
         outputFile.close()
         pdf_file.close()
 
-#     else:
-#         for i in len(files):
-#             create list for odd pages
-#
-#         for every file
-#             determine the bookNum startPage, endPage, EvenOdd
-#
-#             check if all bookNumbers are the same
-#                 if not
-#                     exit and throw error
-#             bookNumList.sort()
-#
-#             oddPages = []
-#             evenPages = []
-#
-#             create list for odd pages
-#                 [0] = startPage == TO
-#                 if end == [i -1] + 1
-#                     is not last page
-#                         .append([i])
-#                     else
-#                         .append([i])
-#
-#             create a list for even pages
-#
-#     print("\n-----------------------------------------------------------------")
+    else:
+        even = {"Name": [], "StartPage": [], "EndPage": []}
+        odd = {"Name": [], "StartPage": [], "EndPage": []}
+
+        for file in os.listdir(folderBase + '/' + name):
+            if "_O" in file:
+                newfile = file[:(file.index("_O") + 2)] + ".pdf"
+                newfile.replace('-', '_')
+                os.rename(file, newfile)
+                odd["Name"].append(newfile)
+                currentIndex = odd["Name"].index(newfile)
+                split = odd["Name"][currentIndex].split('_')
+
+                if split[1] == "TO":
+                    split[1] = 0
+
+                odd["StartPage"].append(split[1])
+                odd["EndPage"].append(split[2])
+
+            elif "_E" in file:
+                newfile = file[:(file.index("_E") + 2)] + ".pdf"
+                newfile.replace('-', '_')
+                os.rename(file, newfile)
+                even["Name"].append(newfile)
+                currentIndex = even["Name"].index(newfile)
+                split = even["Name"][currentIndex].split('_')
+                even["StartPage"].append(split[1])
+
+                if split[1] == "TE":
+                    split[1] = 0
+
+                even["EndPage"].append(split[2])
+
+
+            odd["StartPage"].sort()
+            odd["StartPage"].index()
+    print("\n-----------------------------------------------------------------")
