@@ -49,39 +49,38 @@ for name in folders:
         pdf_file.close()
 
     else:
-        even = {"Name": [], "StartPage": [], "EndPage": []}
-        odd = {"Name": [], "StartPage": [], "EndPage": []}
+        even = [[], [], []]
+        odd = [[], [], []]
+        count = 0
 
         for file in os.listdir(folderBase + '/' + name):
             if "_O" in file:
-                newfile = file[:(file.index("_O") + 2)] + ".pdf"
-                newfile.replace('-', '_')
+                newfile = file[:(file.index("_E") + 2)] + ".pdf"
+                newfile = newfile.replace('-', '_')
+                newfile = newfile.replace("TO", "0")
                 os.rename(file, newfile)
-                odd["Name"].append(newfile)
-                currentIndex = odd["Name"].index(newfile)
-                split = odd["Name"][currentIndex].split('_')
+                odd[0].append(newfile)
+                split = odd[0][count].split('_')
+
+                odd[1].append(int(split[1]))
+                odd[2].append(int(split[2]))
+
+            elif "_E" in file:
+                newfile = file[:(file.index("_E") + 2)] + ".pdf"
+                newfile = newfile.replace('-', '_')
+                newfile = newfile.replace("TO", "0")
+                os.rename(file, newfile)
+                even[0].append(newfile)
+                split = even[0][count].split('_')
 
                 if split[1] == "TO":
                     split[1] = 0
 
-                odd["StartPage"].append(split[1])
-                odd["EndPage"].append(split[2])
+                even[1].append(int(split[1]))
+                even[2].append(int(split[2]))
 
-            elif "_E" in file:
-                newfile = file[:(file.index("_E") + 2)] + ".pdf"
-                newfile.replace('-', '_')
-                os.rename(file, newfile)
-                even["Name"].append(newfile)
-                currentIndex = even["Name"].index(newfile)
-                split = even["Name"][currentIndex].split('_')
-                even["StartPage"].append(split[1])
+            count += 1
 
-                if split[1] == "TE":
-                    split[1] = 0
-
-                even["EndPage"].append(split[2])
-
-
-            odd["StartPage"].sort()
-            odd["StartPage"].index()
+            # odd["StartPage"].sort()
+            # odd["StartPage"].index()
     print("\n-----------------------------------------------------------------")
