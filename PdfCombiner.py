@@ -49,38 +49,49 @@ for name in folders:
         pdf_file.close()
 
     else:
-        even = [[], [], []]
-        odd = [[], [], []]
+        fileList = even = odd =[]
         count = 0
 
-        for file in os.listdir(folderBase + '/' + name):
+        fileList = os.listdir(folderBase + '/' + name)
+        # del fileList[fileList.index(".DS_Store")]
+
+        for file in fileList:
+            file = list(file)
+            while file.index('-') != 5:
+                file.insert(2, '0')
+
             if "_O" in file:
+                file = file.replace("TO", "000")
+                odd.append(file)
+            elif "_E" in fileList:
+                file = file.replace("TE", "000")
+                even.append(file)
+
+        odd.sort(key = lambda x: x[1:5])
+        even.sort(key = lambda x: x[1:5])
+
+        print(odd, end = "\n----------\n")
+        print(even)
+
+        for file in os.listdir(folderBase + '/' + name):
+            newfile = file.replace("TO", "0")
+            newfile = file.replace("TE", "0")
+            fileList.append
+
+            if "_O" in file:
+
+
+            if "_E" in file:
                 newfile = file[:(file.index("_E") + 2)] + ".pdf"
                 newfile = newfile.replace('-', '_')
-                newfile = newfile.replace("TO", "0")
-                os.rename(file, newfile)
-                odd[0].append(newfile)
-                split = odd[0][count].split('_')
-
-                odd[1].append(int(split[1]))
-                odd[2].append(int(split[2]))
-
-            elif "_E" in file:
-                newfile = file[:(file.index("_E") + 2)] + ".pdf"
-                newfile = newfile.replace('-', '_')
-                newfile = newfile.replace("TO", "0")
+                newfile = newfile.replace("TE", "0")
                 os.rename(file, newfile)
                 even[0].append(newfile)
                 split = even[0][count].split('_')
 
-                if split[1] == "TO":
+                if split[1] == "TE":
                     split[1] = 0
 
                 even[1].append(int(split[1]))
                 even[2].append(int(split[2]))
-
-            count += 1
-
-            # odd["StartPage"].sort()
-            # odd["StartPage"].index()
     print("\n-----------------------------------------------------------------")
