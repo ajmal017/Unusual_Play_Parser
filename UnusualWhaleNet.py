@@ -1,23 +1,38 @@
-import requests, bs4 as bs, re, sys
+import requests, bs4 as bs, re, sys, os, openpyxl
+
+os.chdir("/Users/X/UnusualWhales_6-16_Present")
 
 if len(sys.argv) >= 1:
-    htmlData = open(str(sys.argv[1]), 'r')
+    argList = []
+
+    for arg in sys.argv[1:]:
+        argList.append(arg)
+
 else:
-    htmlData = open("/Users/X/07-15-20_4-30AM.html", 'r')
+    argList = os.listdir()
 
-contents = htmlData.read()
-soup = bs.BeautifulSoup(contents, "html.parser")
+for inputFile in sys.argv[1:]:
+    htmlData = open(str(inputFile), 'r')
+    contents = htmlData.read()
+    soup = bs.BeautifulSoup(contents, "html.parser")
 
-# For the strike
-strikePlays = soup.find_all("a", {"class": "chatlog__embed-title-link"})
-# For the strike details
-strikeDetails = soup.find_all("div", {"class": "chatlog__embed-description"})
+    # For the strike
+    strikePlays = soup.find_all("a", {"class": "chatlog__embed-title-link"})
+    # For the strike details
+    strikeDetails = soup.find_all("div", {"class": "chatlog__embed-description"})
 
-for item in strikePlays:
-    print(item.div.text)
+#   1398 Automate has excel help
+#    wb = opxl.Workbook()
 
-for item in strikeDetails:
-    print(item.div.text)
+    # For every item:
+    #   if it doesn't exist in file:
+    #       Write to excel file
+
+    for item in strikePlays:
+        print(item.div.text)
+
+    for item in strikeDetails:
+        print(item.div.text)
 
 # Create output file to store data
 # Add data to excel sheet if it doesnt already exist.
