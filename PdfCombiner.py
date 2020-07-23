@@ -13,40 +13,54 @@ logging.disable(logging.DEBUG)
 # 9 - 17
 
 def get_merged_pdf(fileList, outputPDF):
-    merger = PyPDF2.PdfFileMerger()
+    # Gets the starting page from the pdf name, 1_[000]-123_O.pdf
+    def getStart(pdf):
+        return int(pdf.name[pdf.name.index('_') + 1 : pdf.name.index('-')])
 
+    # Gets the ending page from the pdf name, 1_000-[123]_O.pdf
+    def getEnd(pdf):
+        return int(pdf.name[pdf.name.index('-') + 1 : pdf.name.rfind('_')])
+
+    merger = PyPDF2.PdfFileMerger()
     pdfs = [open(pdf, 'rb') for pdf in fileList]
 
-
-    def getStart():
-        pass
-
-
-    def getEnd():
-        pass
-
-    for pdf in pdfs:
+    # Stops are len - 1 to prevent out of bounds
     for i in (len(pdfs) - 1):
-        # get start and end for current
-        currStart = int(pdfs[i].name[pdfs[i].name.index('_') + 1 : pdfs[i].name.index('-')])
-        currEnd = int(pdfs[i].name[pdfs[i].name.index('-') + 1 : pdfs[i].name.rfind('_')])
-        
-        nextStart = int(pdfs[i+1].name[pdfs[i+1].name.index('_') + 1 : pdfs[i+1].name.index('-')])
-        nextEnd = int(pdfs[i+1].name[pdfs[i+1].name.index('-') + 1 : pdfs[i+1].name.rfind('_')])
-
-        if  nextStart <=  currEnd:
-        #     add (next end - current end) / 2 from the end of next
-            merger.append(
-                extractPage() # add neccessary sheets only
-            )
+        if i  == 0:
+            merger.append(pdfs[0])
         else:
-            merger.append(pdf)
+            currStart = getStart(pdfs[i])
+            currEnd = getEnd(pdfs[i])
 
+            prevStart = getStart(pdfs[i-1])
+            prevEnd = getEnd(pdfs[i-1])
+
+            # If the starting page of next file is less than the ending page of current file,
+            #   then there is an overlap. #1 is [000-123] and #2 is [121-149].
+            #   Pages 121 and 123 are already covered by the first file
+            if currStart <= prevEnd:
+                # So the overlapping pages are excluded from the final pdf
+                # /Users/X/Uncompressed/Temp will be used to store the files temporarily
+                if currEnd <= prevEnd:
+                    pass
+                else:
+                    merger.append(extractPage(pdfs[i].name, str((currStart - prevEnd)/2), "/Users/X/Uncompressed/Temp" + str(i) + ".pdf")[0])
+            else: # If no overlap occurs, simply add the file
+                merger.append(pdfs[i])
+
+    # Delete the contents of temp folder. /Users/X/Uncompressed/Temp
+    for file in os.listdir("/Users/X/Uncompressed/Temp"):
+        try:
+            os.unlink(file)
+        except Exception as e:
+            print(str(e))
+
+    # The name of the new file
     outFile = outputPDF
 
+    # Closes open files and writes pdf
     with open(outFile, 'wb') as pdf:
         merger.write(pdf)
-
     [fp.close() for fp in pdfs]
     print(outputPDF + " has been saved.")
     merger.close()
@@ -57,42 +71,58 @@ def get_merged_pdf(fileList, outputPDF):
 #
 # merger.write("document-output.pdf")
 
-
+# Returns a tuple of the (filepath, filename)
 def extractPage(fileName, prompt = "", outputName = ""):
-    whichPages = []
+    whichPages = [] # Stores the pages to be extracted
     filepath = Path(fileName)
-
-    if prompt == "":
-        prompt = input("Enter pages separated by spaces, 1 2 3 or a page range 2-3:")
-    else:
-        prompt = prompt.replace(" ", "")
-
-    if '-' in prompt:
-        prompt = prompt.split('-')
-
-        for j in range(int(prompt[0]), int(prompt[1]) + 1):
-            whichPages.append(j)
-    else:
-        for num in prompt.split(' '):
-            whichPages.append(int(num))
 
     pdf = open(fileName, "rb")
     reader = PyPDF2.PdfFileReader(pdf)
     writer = PyPDF2.PdfFileWriter()
 
-    for page in range(reader.numPages):
-        if page + 1 in whichPages:
+    # Can pass in a negative number to indicate the last x amount of pages, -2 for the last two
+    if not prompt.startswith('-'):
+        if prompt == "": # if page numbers are not passed in to function, get them
+            prompt = input("Enter pages separated by spaces, 1 2 3 or a page range 2-3:")
+        else:  # Removes spaces from input and turns 2 - 3 into 2-3
+            prompt = prompt.replace(" ", "")
+
+        # Takes pages and turns them into a list, whichPages
+        if '-' in prompt: # If page range passed in, 2-3
+            prompt = prompt.split('-')
+
+            for page in range(int(prompt[0]), int(prompt[1]) + 1):
+                whichPages.append(page)
+        # else if individual and separate pages are passed, add those, 1 3 5 7 10 etc..
+        else:
+            for num in prompt.split(' '):
+                whichPages.append(int(num))
+
+        # Adds the pages in the list to the queue to become part of the final pdf
+        for page in range(reader.numPages):
+            if page + 1 in whichPages:
+                page = reader.getPage(page)
+                writer.addPage(page)
+
+    # If prompt begins with a - that signals the amount of pages from the end to return
+    else:
+        prompt = int(prompt.replace('-', ''))
+
+        for page in range(reader.numPages - prompt, reader.numPages):
             page = reader.getPage(page)
             writer.addPage(page)
 
-    suffix = ""
+    # If no output name is passed in, the new file name will reflect the pages in it
+    prefix = ""
     if outputName == "":
         if len(whichPages) > 1:
-            suffix = str(whichPages[0]) + '-' + str(whichPages[-1]) + '_'
+            for page in whichPages:
+                prefix += str(whichPages[page]) + "-"
+            prefix = prefix.rsplit('-', 1)[0]
         else:
-            suffix = str(whichPages[0]) + '_'
+            prefix = str(whichPages[0]) + '_'
 
-        outputName = suffix + filepath.name
+        outputName = prefix + filepath.name
 
     if not outputName.endswith(".pdf"):
         outputName += ".pdf"
@@ -164,6 +194,8 @@ for name in folders:
     if name == "YellowPacket":  # Files are organized differently, needs special care
         get_merged_pdf(files, folderBase + "/Final/" + name + ".pdf")
 
+    elif name == ""
+
     else:
         fileList = []
         even = []
@@ -219,22 +251,6 @@ for name in folders:
         get_merged_pdf([name + "_odd.pdf", name + "_even.pdf"], folderBase + "/Final/" + name + ".pdf")
 
 
-#    print("\n-----------------------------------------------------------------")
-#
-# https://stackoverflow.com/questions/17104926/pypdf-merging-multiple-pdf-files-into-one-pdf
-#
-# from PyPDF2 import PdfFileMerger, PdfFileReader
-#
-# [...]
-#
-# merger = PdfFileMerger()
-# for filename in filenames:
-#     merger.append(PdfFileReader(file(filename, 'rb')))
-#
-# merger.write("document-output.pdf")
-
-
-###############################################
 #
 # def reset():
 #     start = perf_counter()
