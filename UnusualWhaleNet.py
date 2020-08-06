@@ -16,6 +16,7 @@ smallList = "06-16-20.html"
 rawplays = []
 argList = []
 plays = []
+valid_symbols = "!@#$%^&*()_-+={}[]"
 
 strikeData = {"Symbol": [],
               "Date": [],
@@ -64,17 +65,20 @@ for inputFile in argList:
         if isinstance(img, bs.element.Tag):
             img.decompose()
 
-    # Gets the text without the div tag
-    for div in strikePlays:
-        rawplays.append(div.text)
-        print(div.text)
+    for i in range(len(strikePlays)):
+        string = []
 
-    for i in range(len(rawplays)):
-        while not rawplays[i][0].isalpha():
-            rawplays[i] = rawplays[i][1:]
+        for j in range(len(strikePlays[i].text)):
+            if ord(strikePlays[i].text[j]) < 122:
+                string.append(strikePlays[i].text[j])
+        strikeData.append(string)
 
-        if not rawplays[i].endswith('\n'):
-            rawplays[i] += '\n'
+    for i in range(len(strikeData)):
+        while not strikeData[i][0].isalpha():
+            del strikeData[i][0]
+
+        strikeData[i] = ''.join(strikeData[i])
+        print(strikeData[i])
 
     # Prints the value in each dict item for number v
 
@@ -91,7 +95,7 @@ for inputFile in argList:
                                     (?P<Interest>\d{1,7})\s*Volume:\s*
                                     (?P<Volume>\d{1,7})\s*IV:\s*
                                     (?P<IV>\d{1,4}(\.\d{1,2})?)%\s*%\s*Diff:\s*
-                                    (?P<Diff>\d{1,4}(\.\d{1,2})?)%\s*Purchase:\s*\$
+                                    (?P<Diff>-?\d{1,4}(\.\d{1,2})?)%\s*Purchase:\s*\$
                                     (?P<Price>\d{1,4}(\.\d{1,2})?)
                                     ''')
 
