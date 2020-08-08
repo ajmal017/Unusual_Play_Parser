@@ -1,17 +1,34 @@
-import requests
-from io import StringIO
-import openpyxl
-import sqlite3
-import bs4 as bs
+# TODO
+# add sector
+# add gui window
+# add search by field name
+# add gui progress bar(s)
+
+import os
 import re
 import sys
-import os
+import sqlite3
+import bs4 as bs
+from datetime import date
 
-def resetSD(strikeData):
-    for i in strikeData:
-        strikeData[i] = []
 
-os.chdir("/Users/X/UnusualWhalesHistory/")
+def resetSD(data):
+    for i in data:
+        data[i] = []
+
+
+files = os.listdir("/Users/X/UnusualWhalesHistory/")
+# Check the current date
+# Make sure a file exists for everyday since and including 06-16-2020
+# Run each file through this program and add it to the database
+# Store variable of last run date and time
+
+
+conn = sqlite3.connect("WhalePlays.db")
+cursor = conn.cursor()
+cursor.execute('''CREATE TABLE IF NOT EXISTS Plays(symbol TEXT, date TEXT, style TEXT, strike REAL,
+                                                      bid REAL, ask REAL, interest INTEGER, volume INTEGER, iv REAL, diff REAL, price REAL)''')
+os.chdir("")
 smallList = "07-01-20_07-10-20.html"
 strikeData = []
 argList = []
@@ -81,7 +98,7 @@ for inputFile in argList:
 
     pattern_text = re.compile(r'''(?P<Symbol>\w{1,5})\s*
                                     (?P<Date>\d{4}-\d{2}-\d{2})\s*
-                                    (?P<Style>\w{1})\s*\$
+                                    (?P<Style>\w)\s*\$
                                     (?P<Strike>\d{1,5}(\.\d{1,2})?)\s*Bid:\s*\$
                                     (?P<Bid>\d{1,5}(\.\d{1,2})?)\s*Ask:\s*\$
                                     (?P<Ask>\d{1,5}(\.\d{1,2})?)\s*Interest:\s*
@@ -92,18 +109,38 @@ for inputFile in argList:
                                     (?P<Price>\d{1,4}(\.\d{1,2})?.*)''', re.VERBOSE)
 
     for i in range(len(strikeData)):
+        details = []
         match = pattern_text.match(strikeData[i])
 
-        # for j in range(len(strikeInfo) - 2):
-        #     print(match.group(strikeInfo[j]))
-        # print(' ', str(i) * 20)
+        for j in range(11):
+            if j <= 2:
+                details.append(match.group(strikeInfo[j]))
+            else:
+                details.append(float(match.group(strikeInfo[j])))
+        #     print(strikeInfo[j], ":", details[j])
+        # print('*' * 35)
 
-    # For every item:
-    #   if it doesn't exist in file:
-    #       Write to excel file or text or sql
+        cursor.execute('''INSERT INTO Plays (symbol, date, style, strike, bid, ask, interest, volume, iv, diff, price)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', details)
+        print("Inserted", i)
+
+    conn.commit()
 
     print("File analysis complete, {0} records created.".format(len(strikeData)))
-
+# strikeInfo = ["Symbol",  # string
+#                   "Date",  # string or int int int
+#                   "Style",  # string
+#                   "Strike",  # int
+#                   "Bid",  # int
+#                   "Ask",  # int
+#                   "Interest",  # int
+#                   "Volume",  # int
+#                   "IV",  # int
+#                   "Diff",  # int
+#                   "Price",  # int
+#                   "ChangePercent",  # int, (price - strike) / price
+#                   "ChangeCost"  # int, (price - strike)
+#                   ]
 '''
 IQ 2020-07-17 P $25
 
