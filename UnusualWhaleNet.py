@@ -1,11 +1,11 @@
 import requests
 from io import StringIO
+import openpyxl
+import sqlite3
 import bs4 as bs
 import re
 import sys
 import os
-import openpyxl
-import sqlite3
 
 def resetSD(strikeData):
     for i in strikeData:
@@ -13,12 +13,9 @@ def resetSD(strikeData):
 
 os.chdir("/Users/X/UnusualWhalesHistory/")
 smallList = "07-01-20_07-10-20.html"
-rawplays = []
-argList = []
-plays = []
-valid_symbols = "!@#$%^&*()_-+={}[]"
-
 strikeData = []
+argList = []
+
 strikeInfo = ["Symbol",
               "Date",
               "Style",
@@ -31,8 +28,7 @@ strikeInfo = ["Symbol",
               "Diff",
               "Price",
               "ChangePercent",
-              "ChangeCost",
-              ]
+              "ChangeCost"]
 
 # Read the command line arguments and added file names to list
 if len(sys.argv) > 1:
@@ -52,7 +48,7 @@ else:
 [print("Arg: ", item) for item in sys.argv]
 [print(item) for item in argList]
 
-rawplays = []
+print("Gathering data...")
 
 #   The strikes in the files will be added to a database if they don't exist already.
 for inputFile in argList:
@@ -60,69 +56,53 @@ for inputFile in argList:
     contents = htmlData.read()
     soup = bs.BeautifulSoup(contents, "html.parser")
 
-    # For the strike
-    strikePlays = soup.find_all("div", {"class": "markdown"})
-
     # Removes img tag
     for img in soup("img"):
         if isinstance(img, bs.element.Tag):
             img.decompose()
 
+    # For the strike
+    strikePlays = soup.find_all("div", {"class": "chatlog__message"})
+
     for i in range(len(strikePlays)):
         string = []
 
         for j in range(len(strikePlays[i].text)):
-            if ord(strikePlays[i].text[j]) < 122:
-                string.append(strikePlays[i].text[j])
+            if strikePlays[i].text != 0:
+                if ord(strikePlays[i].text[j]) < 122:
+                    string.append(strikePlays[i].text[j])
         strikeData.append(string)
 
     for i in range(len(strikeData)):
-        print('[', i, ']: ', strikeData[i])
-
-        # IndexError: list index out of range
-        # [ 178 ]:  []
-
         while not strikeData[i][0].isalpha():
             del strikeData[i][0]
 
         strikeData[i] = ''.join(strikeData[i])
-        print(strikeData[i])
 
     pattern_text = re.compile(r'''(?P<Symbol>\w{1,5})\s*
                                     (?P<Date>\d{4}-\d{2}-\d{2})\s*
                                     (?P<Style>\w{1})\s*\$
-                                    (?P<Strike>\d{2,5}(\.\d{1,2})?)\s*Bid:\s*\$
+                                    (?P<Strike>\d{1,5}(\.\d{1,2})?)\s*Bid:\s*\$
                                     (?P<Bid>\d{1,5}(\.\d{1,2})?)\s*Ask:\s*\$
                                     (?P<Ask>\d{1,5}(\.\d{1,2})?)\s*Interest:\s*
                                     (?P<Interest>\d{1,7})\s*Volume:\s*
                                     (?P<Volume>\d{1,7})\s*IV:\s*
                                     (?P<IV>\d{1,4}(\.\d{1,2})?)%\s*%\s*Diff:\s*
                                     (?P<Diff>-?\d{1,4}(\.\d{1,2})?)%\s*Purchase:\s*\$
-                                    (?P<Price>\d{1,4}(\.\d{1,2})?)
-                                    ''', re.VERBOSE)
-
-    # match = pattern_text.match(strikeData[0])
-    # match.group("Date")
+                                    (?P<Price>\d{1,4}(\.\d{1,2})?.*)''', re.VERBOSE)
 
     for i in range(len(strikeData)):
         match = pattern_text.match(strikeData[i])
 
-        for j in range(11):
-            print(match.group(strikeInfo[j]))
-
-        print('*' * 20)
-
-    # Prints the value in each dict item for number v
+        # for j in range(len(strikeInfo) - 2):
+        #     print(match.group(strikeInfo[j]))
+        # print(' ', str(i) * 20)
 
     # For every item:
     #   if it doesn't exist in file:
     #       Write to excel file or text or sql
 
-    for play in rawplays:
-        all = pattern_text.finditer(play)
-
-        for match in all:
-            print(match)
+    print("File analysis complete, {0} records created.".format(len(strikeData)))
 
 '''
 IQ 2020-07-17 P $25
