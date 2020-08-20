@@ -1,12 +1,17 @@
 # TODO
 # add sector for each play
 # add getting plays for the same day and only get plays from previous runtime until now
+#   This was to avoid duplicates more than save time, is not an issue anymore
 # add gui window
 # add search by field name
 # add gui progress bar(s)
 # Add date scanned
-# add play to bd if doesnt exist
+# add play to db if doesnt exist
 # Add csv and json support along side the existing html parsing
+# Multi-threading so db work can be done as the net file is downloading.
+# Add command line access
+# Fetching the plays individually takes too much time.
+#   Collect the date range as one file and separate by date in own file with BeautifulSoup Magic.
 
 # Emoji Guide
 # :rotating_light: - Options expire within the week
@@ -23,6 +28,7 @@ import re  # Parsing for selective text
 import sqlite3  # Managing database storage
 import hashlib  # Retrieving and comparing hashes
 import shutil  # Copying files
+import time
 import bs4 as bs  # Navigating and gathering data from html files
 import subprocess  # Used to issues terminal commands
 import logging  # For selectively writing program information to the console
@@ -40,8 +46,10 @@ def cleanDuplicatesFromDB(file):
     fileCopy = file[:file.rfind('.')] + '2' + file[file.rfind('.'):]  # Takes the filename and makes another filename with a '2' before the '.' - A.html & A2.html
     shutil.copy(base_dir + "/config/" + file, base_dir + "/config/" + fileCopy)  # Creates the copy
 
-    if getHash(file) != getHash(base_dir + "/config/" + fileCopy):  # Makes sure that the two file are the same
+    if getHash(file) != getHash(fileCopy):  # Makes sure that the two file are the same
         raise Exception("Plays damaged, abort.")
+    else:
+        os.unlink(base_dir + "/config/" + fileCopy)
 
     cur.execute('''SELECT DISTINCT * FROM Plays''')  # Selects entries that are not duplicates
     data = cur.fetchall()
@@ -63,6 +71,7 @@ def getHash(fileName, whichHash = 'md5'):
     hashFunction = None
     hashOutput = None
 
+    logging.critical("Hash file: ", fileName)
     if not os.path.exists(base_dir + "/config/" + fileName):
         raise FileNotFoundError
 
@@ -96,7 +105,6 @@ def getHash(fileName, whichHash = 'md5'):
 # Override is an optional parameter, used to specify if the dates should be downloaded if it already exists
 # DbName is an optional parameter for suing a database nme of your choice
 def getHTML(playdate = None, after = None, before = None, numberday = None, outputFile = None, override = False, dbName = None):
-    os.chdir(base_dir + "/historyByDate")
     fileName, afterDate, beforeDate = "", "", ""
 
     # arguments passed to terminal to execute the dotnet command necessary to capture discord plays
@@ -105,7 +113,7 @@ def getHTML(playdate = None, after = None, before = None, numberday = None, outp
                         "export",  # option that specifies we will be exporting a channel
                         "-t", userToken,  # use authorization token of user's account
                         "-c", channelID,  # channel ID of channel to be exported
-                        "-o", base_dir + fileName,  # output file for the exported data
+                        "-o", base_dir + "/historyByDate/" + fileName,  # output file for the exported data
                         "--dateformat", "\"dd-MM-yy hh:mm tt\"",  # date format for the after and before parameters
                         "--after", afterDate,  # Get all channel messages after this date and time
                         "--before", beforeDate]  # Get all channel messages before this date and time
@@ -118,7 +126,10 @@ def getHTML(playdate = None, after = None, before = None, numberday = None, outp
     if type(numberday) == date:
         edate = date(numberday[0], numberday[1], numberday[2])
     else:
-        edate = date.today()
+        if date.today().timetuple()[3] <= 6 and date.today().timetuple()[4] <= 45:
+            edate = date.today() - timedelta(days = 1)
+        else:
+            edate = date.today()
 
     if type(numberday) is int:
         delta = timedelta(days = numberday)
@@ -127,6 +138,7 @@ def getHTML(playdate = None, after = None, before = None, numberday = None, outp
 
     # starts at s(tart)date and moves delta days forward to get range of dates
     for i in range(delta.days + 1):
+        os.chdir(base_dir + "/historyByDate")
         days = sdate + timedelta(days = i)
 
         month = days.timetuple()[2]  # Time tuple returns a tuple of year, day month
@@ -162,7 +174,7 @@ def getHTML(playdate = None, after = None, before = None, numberday = None, outp
             if outputFile is None:
                 outputFile = dateFileName + ".html"
 
-            terminalCommands[8] = base_dir + outputFile
+            terminalCommands[8] = base_dir + "/historyByDate/" + fileName
             terminalCommands[12] = afterDate
             terminalCommands[14] = beforeDate
 
@@ -170,23 +182,28 @@ def getHTML(playdate = None, after = None, before = None, numberday = None, outp
 
             # if the file should be copied, here it is easy to copy
             commandList = " ".join(terminalCommands)
-            pyperclip.copy(commandList)
+            # pyperclip.copy(commandList) # copies terminal command to clipboard
             logging.info("Command string copied to clipboard.\n", commandList)
             # input("Pause and check arg list elements...")
 
             subprocess.call(terminalCommands)
-            logging.info('\n' + fileName + " has been created.")
 
+            if not base_dir + "/config/" + fileName:
+                print("File not created.")
+                logging.error("File not created.")
+                raise FileNotFoundError
+
+            logging.info(fileName + " has been created.")
             logging.info(fileName + " will be passed to html to DB.")
 
-            if dbName is None or not os.path.exists("/config" + '/' + dbName):
+            if dbName is None or not os.path.exists(base_dir + "/config" + '/' + dbName):
                 dbName = defaultDBName
                 logging.info("DB name: " + dbName)
 
             # Each file is created, the play is passed to the database
             # It is not necessary to call the htmldb function here and can be called from main
             #   by creating a list of all html files in the folder and passing that list to html_to_DB
-            html_to_DB(fileName, dbName)
+            # html_to_DB(fileName, dbName)
         else:
             logging.info("The weekday, holiday else clause.")
 
@@ -210,13 +227,15 @@ def html_to_DB(htmlFile = None, dbName = None):  # argList is a list of files th
     #    #  % Diff: 6.7%
     #    #  Purchase: $23.43
 
-    designChangeLog = open("/config/designChangeLog.txt", 'w')
-    logging.debug("Passed in db name: ", dbName)
+    designChangeLog = open(base_dir + "/config/designChangeLog.txt", 'w')
+    logging.debug("Passed in db name: ", str(dbName))
 
     if dbName is None:  # If no db is specified, use the default
-        conn = sqlite3.connect(defaultDBName)
+        conn = sqlite3.connect(base_dir + "/config/" + defaultDBName)
+        logging.debug("Defaulted db name: ", base_dir + "/config/" + defaultDBName)
     else:  # Use dbName database
-        conn = sqlite3.connect(dbName)
+        conn = sqlite3.connect(base_dir + "/config/" + dbName)
+        logging.debug("Used db name: ", base_dir + "/config/" + dbName)
         
     cursor = conn.cursor()
     # Each  field is data that will be obtained for each options play
@@ -297,13 +316,15 @@ def html_to_DB(htmlFile = None, dbName = None):  # argList is a list of files th
                                         (?P<IV>\d{1,4}(\.\d{1,2})?)%\s*%\s*Diff:\s*
                                         (?P<Diff>-?\d{1,4}(\.\d{1,2})?)%\s*(Purchase|Underlying):\s*\$
                                         (?P<Price>\d{1,4}(\.\d{1,2})?.*)''', re.VERBOSE)
-
+        # conn = sqlite3.connect()
+        # cursor = conn.cursor()
         # holds the raw data minus img tags and emoji chars
         for play_iter in range(len(strikeData)):  # each play is scraped for the play strike, price, date etc
             details = []  # The data captured will be stored here and then passed to the database
             match = pattern.match(strikeData[play_iter])  # A single play is captured here and the data about it will be parsed through regular expression
 
-            if match is None:  # if the way the data is organized in the html file changes, the pattern will fail
+            if match is None: # if the way the data is organized in the html file changes, the pattern will fail
+                cursor = conn.cursor()
                 logging.info("Match is none, here is the play")
                 logging.info('*' * 20, '\n', strikeData[play_iter], '\n', '*' * 20)
                 match = backup_pattern.match(strikeData[play_iter])  # Backup pattern is used
@@ -339,10 +360,11 @@ def html_to_DB(htmlFile = None, dbName = None):  # argList is a list of files th
             logging.debug("Inserted", play_iter)
 
         conn.commit()
-        cursor.close()
-        conn.close()
 
-        print("File analysis complete, {0} records inserted into database.".format(len(strikeData)))
+        print("File analysis complete, {0} records inserted into database.{1}".format(len(strikeData), "\n\t" + '*' * 25))
+
+    cursor.close()
+    conn.close()
 
 
 # If a play is not able to be captured by the regex or the backup regex, the text is stored in this file so a new pattern can be derived.
@@ -367,23 +389,26 @@ def errorLog():
 
 def main():
     # Setting up the log to display information about the program as it runs
-    logging.basicConfig(level = logging.DEBUG, format = "%(levelname)s -  %(message)s")
+    # logging.basicConfig(level = logging.DEBUG, format = "%(levelname)s -  %(message)s")
     # logging.basicConfig(filename = 'unusualLogs.txt',level = logging.DEBUG, format = ' %(asctime)s -  %(levelname)s -  %(message)s')
 
     print("Plays will be collected and added to the database.\nData is being gathered, wait for it to finish....")
 
     getHTML()  # Gets an html file for every for every day that the program runs. Another function is called that creates and fills the database
+    html_to_DB()  # Finds option plays from the html and adds them to the database
     cleanDuplicatesFromDB(defaultDBName)  # Many duplicates are listed and this function removes them from the database
 
     print("All done!")
     logging.info("Database queries complete.")
 
 
+start = time.time()
+# debug, info, warning, error critical
+logging.basicConfig(level = logging.DEBUG, format = "%(levelname)s -  %(message)s")
+logging.disable(logging.WARNING)
 strikeData = []  # Will hold the information after data is scraped from html files
 base_dir = os.getcwd() + "/UnusualWhales"  # Where the files for this program will be stored
 toCreate = ["UnusualWhales", "UnusualWhales/config", "UnusualWhales/config/backup", "UnusualWhales/historyByDate"]
-
-os.chdir(base_dir)
 
 defaultDBName = "WhalePlays.db"
 
@@ -394,11 +419,13 @@ for i in range(len(toCreate)):
     else:
         logging.info(toCreate[i] + " already exists.")
 
-logging.debug(os.getcwd() + "/UnusualWhales exists: ", os.path.exists(base_dir + "/UnusualWhales"))
-logging.debug(os.getcwd() + "/UnusualWhales/config exists: ", os.path.exists(base_dir + "/UnusualWhales/config"))
-logging.debug(os.getcwd() + "/UnusualWhales/WhalePlays.db exists: ", os.path.exists(base_dir + "/UnusualWhales/WhalePlays.db"))
-logging.debug(os.getcwd() + "/UnusualWhales/historyByDate exists: ", os.path.exists(base_dir + "/UnusualWhales/historyByDate"))
-logging.debug(os.getcwd() + "/UnusualWhales/config/backup exists: ", os.path.exists(base_dir + "/UnusualWhales/config/backup"))
+logging.debug(os.getcwd() + "/UnusualWhales exists: " + str(os.path.exists(base_dir + "/UnusualWhales")))
+logging.debug(os.getcwd() + "/UnusualWhales/config exists: " + str(os.path.exists(base_dir + "/UnusualWhales/config")))
+logging.debug(os.getcwd() + "/UnusualWhales/WhalePlays.db exists: " + str(os.path.exists(base_dir + "/UnusualWhales/WhalePlays.db")))
+logging.debug(os.getcwd() + "/UnusualWhales/historyByDate exists: " + str(os.path.exists(base_dir + "/UnusualWhales/historyByDate")))
+logging.debug(os.getcwd() + "/UnusualWhales/config/backup exists: " + str(os.path.exists(base_dir + "/UnusualWhales/config/backup")))
+
+os.chdir(base_dir)
 
 try:
     tokens = open("config/tokens.txt", 'r')  # Holds discord user token, channel id and discord scraper dll file
@@ -407,18 +434,23 @@ try:
     dllLocation = tokens.readline().split("\"")[1]
     tokens.close()
 
+    if userToken == '' or dllLocation == '':
+        print("Please insert the below items in the \"UnusualWhales/config/tokens.txt\" and restart program:\n" +
+              "\tDiscord user token\n\tThe location of the DiscordChatExporter.Cli.dll file")
+        exit(1)
+
 except FileNotFoundError:
     # if not os.path.exists("config/tokens.txt"):
-    print(os.getcwd())
+    logging.debug(os.getcwd())
     with open(base_dir + "/config/tokens.txt", 'w') as file:
         file.write("userToken = \"\"\nchannelID = \"721759406089306223\"\ndllLocation = \"\"\n")
 
-    print("The program cannot continue without the following.\n" +
-          "Please insert the below items in the \"UnusualWhales/config/tokens.txt\" file:\n" +
+    print("Please insert the below items in the \"UnusualWhales/config/tokens.txt\" and restart program:\n" +
           "\tDiscord user token\n\tThe location of the DiscordChatExporter.Cli.dll file")
+    exit(1)
 
 if not os.path.exists("/config/tradingHolidays.txt"):
-    with open("/config/tradingHolidays.txt", 'w') as file:
+    with open(base_dir + "/config/tradingHolidays.txt", 'w') as file:
         file.write("01-01-20\n01-20-20\n02-17-20\n04-10-20\n05-25-20\n07-03-20\n09-07-20\n11-26-20\n12-25-20\n\n" +
                    "01-01-21\n01-18-21\n02-15-21\n04-02-21\n05-31-21\n07-05-21\n09-06-21\n11-25-21\n12-24-21\n\n" +
                    "01-01-22\n01-17-22\n02-21-22\n04-15-22\n05-30-22\n07-04-22\n09-05-22\n11-24-22\n12-26-22\n\n")
@@ -453,3 +485,4 @@ file.close()
 
 if __name__ == "__main__":
     main()
+    print("Total runtime: {0:02} seconds.".format(time.time() - start))
