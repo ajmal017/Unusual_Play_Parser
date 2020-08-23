@@ -100,11 +100,10 @@ def getHash(fileName, whichHash = 'md5'):
 # StartDate is an optional parameter which is the date to begin at, will default to 06-16-20, the first day the plays are available
 # After is an optional parameter specifying that all plays after that time will be captured
 # Before is an optional parameter specifying that all plays before that time will be captured
-# EndDate is an optional parameter specifying the number of days to capture data for
-# OutputFile is an optional parameter, it is the name of the html output file that contains all the plays for the date range
+# End is an optional parameter specifying the number of days to capture data for
 # Override is an optional parameter, used to specify if the dates should be downloaded if it already exists
-def downloadPlays(fileType, startDate = None, after = None, before = None, endDate = None, outputFile = None, override = False):
-    with open("/config/tokens.txt", 'r') as tokens:
+def downloadPlays(fileType, end = None, startDate = None, after = None, before = None, override = False):
+    with open("config/tokens.txt", 'r') as tokens:
         userToken = tokens.readline().split("\"")[1]
         channelID = tokens.readline().split("\"")[1]
         dllLocation = tokens.readline().split("\"")[1]
@@ -118,11 +117,11 @@ def downloadPlays(fileType, startDate = None, after = None, before = None, endDa
     ######################################
 
     holidayList = []
-    with open("/config/tradingHolidays.txt", 'r') as holidays:
+    with open("config/tradingHolidays.txt", 'r') as holidays:
         [holidayList.append(i[:-1]) for i in holidays.readlines()]  # Dates are recorded as 07-17-20, the [:-1] takes off the null terminator
 
     badDates = []  # Dates where nothing was uploaded but should have due to error etc.. None so far
-    with open("/config/badDays.txt", 'r') as file:
+    with open("config/badDays.txt", 'r') as file:
         [badDates.append(i[:-1]) for i in file.readlines()]  # Dates are recorded as 07-17-20, the -1 takes off the null terminator
 
     ######################################
@@ -132,10 +131,10 @@ def downloadPlays(fileType, startDate = None, after = None, before = None, endDa
     else:
         sdate = date(startDate[0], startDate[1], startDate[2])  # Year, month and date
 
-    if type(endDate) == date:
-        edate = date(endDate[0], endDate[1], endDate[2])
-    elif type(endDate) is int:
-        edate = sdate + timedelta(days = endDate)
+    if type(end) == date:
+        edate = date(end[0], end[1], end[2])
+    elif type(end) is int:
+        edate = sdate + timedelta(days = end)
     else:  # If it is a new day and before the market opens, don't include the current day
         if date.today().timetuple()[3] <= 6 and date.today().timetuple()[4] < 30:
             edate = date.today() - timedelta(days = 1)
@@ -148,7 +147,7 @@ def downloadPlays(fileType, startDate = None, after = None, before = None, endDa
 
     # starts at s(tart)date and moves delta days forward to get range of dates
     for i in range(delta.days + 1):
-        os.chdir(base_dir + "/historyByDate")
+        os.chdir(file_dir)
         days = sdate + timedelta(days = i)
 
         month = days.timetuple()[2]  # Time tuple returns a tuple of year, day month
@@ -156,16 +155,17 @@ def downloadPlays(fileType, startDate = None, after = None, before = None, endDa
         year = str(days.timetuple()[0])[-2:]
 
         dateFileName = "{0:02d}-{1:02d}-{2}".format(day, month, year)  # The month and date are formatted in two decimal places
-        fileName = dateFileName + fileType
+        fileName = dateFileName + returnFileType(fileType)
 
         if days.weekday() > 4:
             logging.info(fileName + " is a weekend, skipping.")
         elif fileName[0:8] in holidayList:
             logging.info(fileName + " is a trading holiday, skipping")
-        elif os.path.exists(base_dir + "/historyByDate/" + fileName) and override is False:
+        elif os.path.exists(file_dir + fileName) and override is False:
             logging.info(fileName + " exists.")
         # If the file exists and the override is set to True OR the file doesnt exists, download the files
-        elif (os.path.exists(base_dir + "/historyByDate/" + fileName) and override is True) or (not os.path.exists(base_dir + '/' + fileName)):
+        elif (os.path.exists(file_dir + fileName) and override is True) or (not os.path.exists(base_dir + fileName)):
+
             if override:
                 logging.info(fileName + " exists but override is signaled, creating...")
             else:
@@ -179,8 +179,8 @@ def downloadPlays(fileType, startDate = None, after = None, before = None, endDa
                 afterDate = dateFileName + " 06:25"  # 6:25 in case plays start a bit earlier, just in case preparation
                 beforeDate = dateFileName + " 13:05"  # 1:05 in case plays start a bit late or get delayed, just in case preparation
 
-            if outputFile is None:
-                outputFile = dateFileName + ".html"
+            # outputFile = fileName
+            logging.debug("Output: ", fileName)
 
             # arguments passed to terminal to execute the dotnet command necessary to capture discord plays
             terminalCommands = ["dotnet",  # invokes dotnet command with the following as arguments
@@ -188,12 +188,12 @@ def downloadPlays(fileType, startDate = None, after = None, before = None, endDa
                                 "export",  # option  that specifies we will be exporting a channel
                                 "-t", userToken,  # use authorization token of user's account
                                 "-c", channelID,  # channel ID of channel to be exported
-                                "-o", base_dir + "/historyByDate/" + fileName,  # output file for the exported data
+                                "-o", file_dir + fileName,  # output file for the exported data
                                 "--dateformat", "\"dd-MM-yy hh:mm tt\"",  # date format for the after and before parameters
                                 "--after", afterDate,  # Get all channel messages after this date and time
                                 "--before", beforeDate,  # Get all channel messages before this date and time
                                 "-f", fileType]  # HtmlDark, HtmlLight, PlainText Json or Csv
-            # terminalCommands[8] = base_dir + "/historyByDate/" + fileName
+            # terminalCommands[8] = file_dir + fileName
             # terminalCommands[12] = afterDate
             # terminalCommands[14] = beforeDate
 
@@ -212,17 +212,31 @@ def downloadPlays(fileType, startDate = None, after = None, before = None, endDa
             logging.info("The weekday, holiday else clause.")
 
 
+# FileType is a parameter that specifies the return type of the plays file
+def returnFileType(fileType):
+    if fileType == "HtmlDark":
+        return ".html"
+    elif fileType == "HtmlLight":
+        return ".html"
+    elif fileType == "Json":
+        return ".json"
+    elif fileType == "PlainText":
+        return ".txt"
+    elif fileType == "Csv":
+        return ".csv"
+
+
 # htmlFile is an optional parameter. It is an html file that should have the option plays scraped from its contents
 # dbName is an optional parameter. It is the name of the database the plays should be added to. Defaults to "/Users/X/DB/WhalePlays.db"
-def html_to_DB(htmlFile = None, dbName = None):  # argList is a list of files that need to be parsed and contents added to db of plays
+def html_to_DB(fileType, htmlFile = None, dbName = None):  # argList is a list of files that need to be parsed and contents added to db of plays
     strikeData = []  # Will hold the information after data is scraped from html files
 
     if dbName is None:  # If no db is specified, use the default
         conn = sqlite3.connect(config_dir + defaultDB)
-        logging.debug("Defaulted db name: ", config_dir + defaultDB)
     else:  # Use dbName database
         conn = sqlite3.connect(config_dir + dbName)
-        logging.debug("Used db name: ", config_dir + dbName)
+
+    logging.debug("DB name: ", config_dir + dbName)
 
     cursor = conn.cursor()
     # Each field is data that will be obtained for each options play
@@ -231,7 +245,7 @@ def html_to_DB(htmlFile = None, dbName = None):  # argList is a list of files th
                                                        iv REAL, diff REAL, price REAL)''')
 
     argList = []  # Will hold the files to parse for option plays
-    os.chdir(base_dir + '/' + "/historyByDate")
+    os.chdir(file_dir)
 
     if htmlFile is None:  # if no file specified for play parsing, all files in play directory will be added
         [argList.append(fileiter) for fileiter in os.listdir() if fileiter.endswith(".html")]
@@ -316,7 +330,7 @@ def html_to_DB(htmlFile = None, dbName = None):  # argList is a list of files th
                     logging.error("Backup pattern failed, new pattern necessary")
                     logging.error('*' * 20, '\n', strikeData[play_iter], '\n', '*' * 20)
 
-                    with open(base_dir + "/config/designChangeLog.txt", 'a+') as designChangeLog:
+                    with open(base_dir + "config/designChangeLog.txt", 'a+') as designChangeLog:
                         designChangeLog.write(strikeData[play_iter] + "#####")
 
             for group_iter in range(11):
@@ -370,7 +384,7 @@ def errorLog():
 # Base_dir parameter is the directory where the mandatory files will be placed
 def prepareFiles():
     # Make sure the necessary directories are in place
-    toCreate = ["UnusualWhales", "UnusualWhales/config", "UnusualWhales/config/backup", "UnusualWhales/historyByDate"]
+    toCreate = [base_dir, config_dir, file_dir]
     for i in range(len(toCreate)):
         if not os.path.exists(toCreate[i]):
             os.mkdir(toCreate[i])
@@ -380,15 +394,18 @@ def prepareFiles():
 
     os.chdir(base_dir)
 
+    if not os.path.exists("config/badDays.txt"):
+        open("config/badDays.txt", 'x').close()
+
     # The file that holds the user's Discords token, channel id and dll location.
     # The Unusual Whales channel ID is already filled as can be seen
     if not os.path.exists("config/tokens.txt"):
-        with open("/config/tokens.txt", 'w') as file:
+        with open("config/tokens.txt", 'w') as file:
             file.write("userToken = \"\"\nchannelID = \"721759406089306223\"\ndllLocation = \"\"\n")
 
     # A list of holidays during which markets don't trade
-    if not os.path.exists("/config/tradingHolidays.txt"):
-        with open("/config/tradingHolidays.txt", 'w') as file:
+    if not os.path.exists("config/tradingHolidays.txt"):
+        with open("config/tradingHolidays.txt", 'w') as file:
             file.write("01-01-20\n01-20-20\n02-17-20\n04-10-20\n05-25-20\n07-03-20\n09-07-20\n11-26-20\n12-25-20\n\n" +
                        "01-01-21\n01-18-21\n02-15-21\n04-02-21\n05-31-21\n07-05-21\n09-06-21\n11-25-21\n12-24-21\n\n" +
                        "01-01-22\n01-17-22\n02-21-22\n04-15-22\n05-30-22\n07-04-22\n09-05-22\n11-24-22\n12-26-22\n\n")
@@ -401,20 +418,21 @@ def main():
     # Setting up the log to display information about the program as it runs
     # debug, info, warning, error, critical is the order of levels
     logging.basicConfig(level = logging.DEBUG, format = "%(levelname)s -  %(message)s")
-    logging.disable(logging.WARNING)  # Only show warning and higher, disables levels below warning
-    # files = os.listdir(base_dir + "/historyByDate")  # Gathers all the html files downloaded by the program
+    # logging.disable(logging.WARNING)  # Only show warning and higher, disables levels below warning
+    # files = os.listdir(file_dir)  # Gathers all the html files downloaded by the program
 
     print("Plays will be collected and added to the database.\nData is being gathered, wait for it to finish....")
     prepareFiles()
-    downloadPlays()
-    html_to_DB()
-    cleanDuplicatesFromDB(defaultDB)
+    downloadPlays("Json", 1)
+    # html_to_DB()
+    # cleanDuplicatesFromDB(defaultDB)
     print("All done!\nTotal runtime: {0:02} seconds.".format(time.time() - start))
 
 
 # GLOBAL DATA
-base_dir = os.getcwd() + "/UnusualWhales"  # Where the files for this program will be stored
+base_dir = os.getcwd() + "/UnusualWhales/"  # Where the files for this program will be stored
 config_dir = base_dir + "/config/"
+file_dir = base_dir + "/historyByDateX/"
 defaultDB = "WhalePlays.db"
 # The above list are the column titles for the SQL database entries
 strikeInfo = ["Symbol",  # string
