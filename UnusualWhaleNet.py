@@ -424,7 +424,7 @@ def main():
     print("Plays will be collected and added to the database.\nData is being gathered, wait for it to finish....")
     prepareFiles()
     downloadPlays("Json", 1)
-    # html_to_DB()
+    html_to_DB()
     # cleanDuplicatesFromDB(defaultDB)
     print("All done!\nTotal runtime: {0:02} seconds.".format(time.time() - start))
 
