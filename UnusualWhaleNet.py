@@ -12,6 +12,8 @@
 # Add command line access
 # Fetching the plays individually takes too much time.
 # Collect the date range as one file and separate by date in own file with BeautifulSoup Magic.
+# Add list of days to be scanned to db
+# Add list of days already inputted to db
 
 # Emoji Guide
 # :rotating_light: - Options expire within the week
@@ -29,6 +31,7 @@ import sqlite3  # Managing database storage
 import hashlib  # Retrieving and comparing hashes
 import shutil  # Copying files
 import time
+import json
 import bs4 as bs  # Navigating and gathering data from html files
 import subprocess  # Used to issues terminal commands
 import logging  # For selectively writing program information to the console
@@ -70,8 +73,9 @@ def getHash(fileName, whichHash = 'md5'):
     # Heavily borrowed from Randall Hunt's answer over at StackOverflow
     BUF_SIZE = 65536  # lets read stuff in 64kb chunks!
 
-    logging.critical("Hash file: ", fileName)
     if not os.path.exists(config_dir + fileName):
+        logging.critical("Files hashes not equal.")
+
         raise FileNotFoundError
 
     if whichHash == 'sha1':
@@ -97,10 +101,10 @@ def getHash(fileName, whichHash = 'md5'):
 # Using the DiscordChatExporter, the discord char messages are exported to an html
 # There is an html file for each date and the data for only the plays is extracted
 # FileType is a required argument for the output file type: HtmlDark, HtmlLight, PlainText Json or Csv
+# End is an optional parameter specifying the number of days to capture data for
 # StartDate is an optional parameter which is the date to begin at, will default to 06-16-20, the first day the plays are available
 # After is an optional parameter specifying that all plays after that time will be captured
 # Before is an optional parameter specifying that all plays before that time will be captured
-# End is an optional parameter specifying the number of days to capture data for
 # Override is an optional parameter, used to specify if the dates should be downloaded if it already exists
 def downloadPlays(fileType, end = None, startDate = None, after = None, before = None, override = False):
     with open("config/tokens.txt", 'r') as tokens:
@@ -164,7 +168,7 @@ def downloadPlays(fileType, end = None, startDate = None, after = None, before =
         elif os.path.exists(file_dir + fileName) and override is False:
             logging.info(fileName + " exists.")
         # If the file exists and the override is set to True OR the file doesnt exists, download the files
-        elif (os.path.exists(file_dir + fileName) and override is True) or (not os.path.exists(base_dir + fileName)):
+        elif (os.path.exists(file_dir + fileName) and override is True) or (not os.path.exists(base_dir + '/' + fileName)):
 
             if override:
                 logging.info(fileName + " exists but override is signaled, creating...")
@@ -179,8 +183,7 @@ def downloadPlays(fileType, end = None, startDate = None, after = None, before =
                 afterDate = dateFileName + " 06:25"  # 6:25 in case plays start a bit earlier, just in case preparation
                 beforeDate = dateFileName + " 13:05"  # 1:05 in case plays start a bit late or get delayed, just in case preparation
 
-            # outputFile = fileName
-            logging.debug("Output: ", fileName)
+            logging.debug("Output: " + fileName)
 
             # arguments passed to terminal to execute the dotnet command necessary to capture discord plays
             terminalCommands = ["dotnet",  # invokes dotnet command with the following as arguments
@@ -193,9 +196,6 @@ def downloadPlays(fileType, end = None, startDate = None, after = None, before =
                                 "--after", afterDate,  # Get all channel messages after this date and time
                                 "--before", beforeDate,  # Get all channel messages before this date and time
                                 "-f", fileType]  # HtmlDark, HtmlLight, PlainText Json or Csv
-            # terminalCommands[8] = file_dir + fileName
-            # terminalCommands[12] = afterDate
-            # terminalCommands[14] = beforeDate
 
             [logging.debug(terminalCommands[arg]) for arg in range(len(terminalCommands))]
 
@@ -205,38 +205,34 @@ def downloadPlays(fileType, end = None, startDate = None, after = None, before =
                 print("File not created.")
                 logging.error("File not created.")
                 raise FileNotFoundError
-
-            logging.info(fileName + " has been created and will be passed to html to DB.")
-
         else:
             logging.info("The weekday, holiday else clause.")
 
 
 # FileType is a parameter that specifies the return type of the plays file
 def returnFileType(fileType):
-    if fileType == "HtmlDark":
+    fileType = fileType.lower()
+
+    if fileType in ["htmldark", "htmllight", "html"]:
         return ".html"
-    elif fileType == "HtmlLight":
-        return ".html"
-    elif fileType == "Json":
-        return ".json"
-    elif fileType == "PlainText":
+    elif fileType == "plaintext":
         return ".txt"
-    elif fileType == "Csv":
+    elif fileType == "json":
+        return ".json"
+    elif fileType == "csv":
         return ".csv"
 
 
-# htmlFile is an optional parameter. It is an html file that should have the option plays scraped from its contents
-# dbName is an optional parameter. It is the name of the database the plays should be added to. Defaults to "/Users/X/DB/WhalePlays.db"
-def html_to_DB(fileType, htmlFile = None, dbName = None):  # argList is a list of files that need to be parsed and contents added to db of plays
-    strikeData = []  # Will hold the information after data is scraped from html files
+# Dates is an optional parameter representing a list of dates to be passed to the db creator
+# SourceFile is an optional parameter. It is an html file that should have the option plays scraped from its contents
+# DbName is an optional parameter. It is the name of the database the plays should be added to. Defaults to "/Users/X/DB/WhalePlays.db"
+def file_to_DB(fileType, dates = None, sourceFile = None, dbName = None):  # argList is a list of files that need to be parsed and contents added to db of plays
+    fileType = returnFileType(fileType)
 
     if dbName is None:  # If no db is specified, use the default
         conn = sqlite3.connect(config_dir + defaultDB)
     else:  # Use dbName database
         conn = sqlite3.connect(config_dir + dbName)
-
-    logging.debug("DB name: ", config_dir + dbName)
 
     cursor = conn.cursor()
     # Each field is data that will be obtained for each options play
@@ -247,112 +243,125 @@ def html_to_DB(fileType, htmlFile = None, dbName = None):  # argList is a list o
     argList = []  # Will hold the files to parse for option plays
     os.chdir(file_dir)
 
-    if htmlFile is None:  # if no file specified for play parsing, all files in play directory will be added
-        [argList.append(fileiter) for fileiter in os.listdir() if fileiter.endswith(".html")]
+    # The pattern used by  majority of the html files
+    # Expiration date, Call/Put, Strike, Bid, Ask, Interest, Volume IV, and Underlying are gathered by the below patterns
+    pattern = re.compile(r'''(?P<Symbol>\s*\w{1,5})\s*
+                                    (?P<Date>\d{4}-\d{2}-\d{2})\s*
+                                    (?P<Style>\w)\s*\$
+                                    (?P<Strike>\d{1,5}(\.\d{1,2})?)\s*Bid:\s*\$
+                                    (?P<Bid>\d{1,5}(\.\d{1,2})?)\s*Ask:\s*\$
+                                    (?P<Ask>\d{1,5}(\.\d{1,2})?)\s*Interest:\s*
+                                    (?P<Interest>\d{1,9})\s*Volume:\s*
+                                    (?P<Volume>\d{1,9})\s*IV:\s*
+                                    (?P<IV>\d{1,4}(\.\d{1,2})?)%\s*%\s*Diff:\s*
+                                    (?P<Diff>-?\d{1,4}(\.\d{1,2})?)%\s*(Purchase|Underlying):\s*\$
+                                    (?P<Price>\d{1,4}(\.\d{1,2})?.*)''', re.VERBOSE)
+
+    # The newer files use a different pattern
+    backup_pattern = re.compile(r'''(?P<Symbol>\s*\w{1,5})\s*
+                                    (?P<Date>\d{4}-\d{2}-\d{2})\s*
+                                    (?P<Style>\w)\s*\$
+                                    (?P<Strike>\d{1,5}(\.\d{1,2})?)\s*Bid-Ask:\s*\$
+                                    (?P<Bid>\d{1,5}(\.\d{1,2})?)\s*-\s*\$
+                                    (?P<Ask>\d{1,5}(\.\d{1,2})?)\s*Interest:\s*
+                                    (?P<Interest>[0-9,]{1,10})\s*Volume:\s*
+                                    (?P<Volume>[0-9,]{1,10})\s*IV:\s*
+                                    (?P<IV>\d{1,4}(\.\d{1,2})?)%\s*%\s*Diff:\s*
+                                    (?P<Diff>-?\d{1,4}(\.\d{1,2})?)%\s*(Purchase|Underlying):\s*\$
+                                    (?P<Price>\d{1,4}(\.\d{1,2})?.*)''', re.VERBOSE)
+
+    if sourceFile is None:  # if no file specified for play parsing, all files in play directory will be added
+        [argList.append(fileiter) for fileiter in os.listdir() if fileiter.endswith(fileType)]
         argList.sort()  # To keep them in numerical order
+        logging.info("LIST")
     else:
-        argList.append(htmlFile)  # Only add the specified html file
+        argList.append(sourceFile)  # Only add the specified html file
+        logging.info("SINGLE FILE")
 
     # Other methods will be needed to extract data from cvs and json files
     for inputFile in argList:  # Checks every file in arglist
         logging.info("Checking file: [{0}]".format(inputFile))
+        strikeData = []  # Will hold the information after data is scraped from html files
 
-        # Uses bs4 to grab the data for the html file in question
-        htmlData = open(str(inputFile), 'r')
-        contents = htmlData.read()
-        soup = bs.BeautifulSoup(contents, "html.parser")
+        if fileType == ".html":
+            logging.info("USING HTML FILES")
 
-        # Removes img tag
-        for img in soup("img"):
-            if isinstance(img, bs.element.Tag):
-                img.decompose()
+            # Uses bs4 to grab the data for the html file in question
+            htmlData = open(str(inputFile), 'r')
+            contents = htmlData.read()
+            soup = bs.BeautifulSoup(contents, "html.parser")
+            #
+            # # Removes img tag
+            # for img in soup("img"):
+            #     if isinstance(img, bs.element.Tag):
+            #         img.decompose()
 
-        # For the strike, this is the class tag where the strike plays are held
-        strikePlays = soup.find_all("div", {"class": "chatlog__message"})
+            # For the strike, this is the class tag where the strike plays are held
+            strikePlays = soup.find_all("div", {"class": "chatlog__message"})
 
-        ############################
-        # There is other data mixed in with the characters from the file. Emojis and other various text are filtered out here
-        for play_iter in range(len(strikePlays)):
-            string = []
+            ############################
+            # There is other data mixed in with the characters from the file. Emojis and other various text are filtered out here
+            for i in range(len(strikePlays)):
+                string = []
 
-            for char_iter in range(len(strikePlays[play_iter].text)):
-                if strikePlays[play_iter].text != 0:  # If there is text here, otherwise skip
-                    if ord(strikePlays[play_iter].text[char_iter]) < 122:  # If it is a printable character
-                        string.append(strikePlays[play_iter].text[char_iter])  # append it to the string
-            strikeData.append(string)  # Finalize the changes and add it to the list of cleaned up data
+                for j in range(len(strikePlays[i].text)):
+                    if strikePlays[i].text != 0:  # If there is text here, otherwise skip
+                        if ord(strikePlays[i].text[j]) < 122:  # If it is a printable character
+                            string.append(strikePlays[i].text[j])  # append it to the string
+                strikeData.append(string)  # Finalize the changes and add it to the list of cleaned up data
 
-        for char_iter in range(len(strikeData)):  # Delete excess escaped characters located in the front of the string
-            while not strikeData[char_iter][0].isalpha():
-                del strikeData[char_iter][0]
+            for k in range(len(strikeData)):  # Delete excess escaped characters located in the front of the string
+                while not strikeData[k][0].isalpha():  # Stops deleting characters when the unnecessary characters are gone.
+                    del strikeData[k][0]
 
-            strikeData[char_iter] = ''.join(strikeData[char_iter])  # Creates a new string with without extra characters, ready to be parsed for data
-        ###############################
+                strikeData[k] = ''.join(strikeData[k])  # sd[k] is a list of strings, this turns said list into one string
 
-        # The pattern used by  majority of the html files
-        # Expiration date, Call/Put, Strike, Bid, Ask, Interest, Volume IV, and Underlying are gathered by the below patterns
-        pattern = re.compile(r'''(?P<Symbol>\s*\w{1,5})\s*
-                                        (?P<Date>\d{4}-\d{2}-\d{2})\s*
-                                        (?P<Style>\w)\s*\$
-                                        (?P<Strike>\d{1,5}(\.\d{1,2})?)\s*Bid:\s*\$
-                                        (?P<Bid>\d{1,5}(\.\d{1,2})?)\s*Ask:\s*\$
-                                        (?P<Ask>\d{1,5}(\.\d{1,2})?)\s*Interest:\s*
-                                        (?P<Interest>\d{1,9})\s*Volume:\s*
-                                        (?P<Volume>\d{1,9})\s*IV:\s*
-                                        (?P<IV>\d{1,4}(\.\d{1,2})?)%\s*%\s*Diff:\s*
-                                        (?P<Diff>-?\d{1,4}(\.\d{1,2})?)%\s*(Purchase|Underlying):\s*\$
-                                        (?P<Price>\d{1,4}(\.\d{1,2})?.*)''', re.VERBOSE)
+        elif fileType == ".json":
+            logging.info("USING JSON FILES")
 
-        # The newer files use a different pattern
-        backup_pattern = re.compile(r'''(?P<Symbol>\s*\w{1,5})\s*
-                                        (?P<Date>\d{4}-\d{2}-\d{2})\s*
-                                        (?P<Style>\w)\s*\$
-                                        (?P<Strike>\d{1,5}(\.\d{1,2})?)\s*Bid-Ask:\s*\$
-                                        (?P<Bid>\d{1,5}(\.\d{1,2})?)\s*-\s*\$
-                                        (?P<Ask>\d{1,5}(\.\d{1,2})?)\s*Interest:\s*
-                                        (?P<Interest>[0-9,]{1,10})\s*Volume:\s*
-                                        (?P<Volume>[0-9,]{1,10})\s*IV:\s*
-                                        (?P<IV>\d{1,4}(\.\d{1,2})?)%\s*%\s*Diff:\s*
-                                        (?P<Diff>-?\d{1,4}(\.\d{1,2})?)%\s*(Purchase|Underlying):\s*\$
-                                        (?P<Price>\d{1,4}(\.\d{1,2})?.*)''', re.VERBOSE)
-        # conn = sqlite3.connect()
-        # cursor = conn.cursor()
+            with open(inputFile, 'r') as jsonfile:
+                parsejson = json.loads(jsonfile.read())
+
+            for i in range(len(parsejson["messages"])):
+                strikeData.append(parsejson["messages"][i]["content"])
+
+        elif fileType == ".plaintext":
+            logging.info("USING TEXT FILES")
+
+        elif fileType == ".csv":
+            logging.info("USING CSV FILES")
+
+        else:
+            logging.info("USING NO FILES")
+
         # holds the raw data minus img tags and emoji chars
-        for play_iter in range(len(strikeData)):  # each play is scraped for the play strike, price, date etc
+        for i in range(len(strikeData)):  # each play is scraped for the play strike, price, date etc
             details = []  # The data captured will be stored here and then passed to the database
-            match = pattern.match(strikeData[play_iter])  # A single play is captured here and the data about it will be parsed through regular expression
+            match = pattern.match(strikeData[i])  # A single play is captured here and the data about it will be parsed through regular expression
 
             if match is None:  # if the way the data is organized in the html file changes, the pattern will fail
-                cursor = conn.cursor()
-                match = backup_pattern.match(strikeData[play_iter])  # Backup pattern is used
-                logging.info("Backup pattern #1 utilized")
+                match = backup_pattern.match(strikeData[i])  # Backup pattern is used
 
                 if match is None:  # if the backup pattern fails
+                    # When the output and organization of the file changes, a new regex expression is necessary to capture data
+                    # This show how the new data is organized so I can create backup patterns
                     logging.error("Backup pattern failed, new pattern necessary")
-                    logging.error('*' * 20, '\n', strikeData[play_iter], '\n', '*' * 20)
+                    logging.error('*' * 20, '\n', strikeData[i], '\n', '*' * 20)
 
-                    with open(base_dir + "config/designChangeLog.txt", 'a+') as designChangeLog:
-                        designChangeLog.write(strikeData[play_iter] + "#####")
+                    with open(config_dir + "designChangeLog.txt", 'a+') as designChangeLog:
+                        designChangeLog.write(strikeData[i] + "#####")
 
             for group_iter in range(11):
-                # When the output and organization of the html changes, a new regex expression is necessary to capture data
-                # This show how the new data is organized so I can create backup patterns
-                logging.debug('-' * 78)
-                logging.debug(group_iter)
-                logging.debug(strikeInfo[group_iter])
-                logging.debug(match.group(strikeInfo[group_iter]))
-                logging.debug('-' * 78)
-
                 if group_iter <= 2:  # The first three are strings
                     details.append(match.group(strikeInfo[group_iter]))
                 else:  # Everything after is numeric
                     details.append(float(match.group(strikeInfo[group_iter]).replace(',', '')))
 
+            logging.info(details)
+
             cursor.execute('''INSERT INTO Plays (symbol, date, style, strike, bid, ask, interest, volume, iv, diff, price)
                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', details)
-
-            logging.debug("Inserted", play_iter)
-
-        conn.commit()
+            conn.commit()
 
         print("File analysis complete, {0} records inserted into database.{1}".format(len(strikeData), "\n\t" + '*' * 25))
 
@@ -414,23 +423,22 @@ def prepareFiles():
 def main():
     # I want to know how long a full run of the program takes
     start = time.time()
-
-    # Setting up the log to display information about the program as it runs
-    # debug, info, warning, error, critical is the order of levels
+    files = "json"
+    # Logging displays select info to the console
+    # Debug, info, warning, error, critical is the order of levels
     logging.basicConfig(level = logging.DEBUG, format = "%(levelname)s -  %(message)s")
-    # logging.disable(logging.WARNING)  # Only show warning and higher, disables levels below warning
-    # files = os.listdir(file_dir)  # Gathers all the html files downloaded by the program
+    logging.disable(logging.DEBUG)  # Only show warning and higher, disables levels below warning
 
     print("Plays will be collected and added to the database.\nData is being gathered, wait for it to finish....")
     prepareFiles()
-    downloadPlays("Json", 1)
-    html_to_DB()
-    # cleanDuplicatesFromDB(defaultDB)
+    downloadPlays(files, 0)
+    # file_to_DB(files)
+    cleanDuplicatesFromDB(defaultDB)
     print("All done!\nTotal runtime: {0:02} seconds.".format(time.time() - start))
 
 
 # GLOBAL DATA
-base_dir = os.getcwd() + "/UnusualWhales/"  # Where the files for this program will be stored
+base_dir = os.getcwd() + "/UnusualWhales"  # Where the files for this program will be stored
 config_dir = base_dir + "/config/"
 file_dir = base_dir + "/historyByDateX/"
 defaultDB = "WhalePlays.db"
