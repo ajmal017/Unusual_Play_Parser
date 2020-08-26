@@ -1,19 +1,12 @@
 # TODO
 # add sector for each play
-# add getting plays for the same day and only get plays from previous runtime until now
-#   This was to avoid duplicates more than save time, is not an issue anymore
 # add gui window
 # add search by field name
 # add gui progress bar(s)
-# Add date scanned
-# add play to db if doesnt exist
-# Add csv and json support along side the existing html parsing
-# Multi-threading so db work can be done as the net file is downloading.
 # Add command line access
 # Fetching the plays individually takes too much time.
-# Collect the date range as one file and separate by date in own file with BeautifulSoup Magic.
+#   Scan in whole chat history and separate by date
 # Add list of days to be scanned to db
-# Add list of days already inputted to db
 
 # Emoji Guide
 # :rotating_light: - Options expire within the week 128680
@@ -60,6 +53,30 @@ def errorLog():
                 [print(textList[listiter] + '\n') for listiter in range(len(textList))]
 
 
+def dateIsGood(fileName, days = None, override = False):
+    # if days is None:
+    #     days = date(int("20" + fileName[6:8]), int(fileName[:2]), int(fileName[3:5]))
+
+    if days is not None and days.weekday() > 4:
+        print(fileName + " is a weekend, skipping.\n")
+        return False
+
+    elif fileName[0:8] in HOLIDAY_LIST:
+        print(fileName + " is a trading holiday, skipping.\n")
+        return False
+
+    elif fileName[0:8] in BAD_DATES:
+        print(fileName + " is a trading holiday, skipping.\n")
+        return False
+
+    elif os.path.exists(FILE_DIR + fileName) and override is False:
+        print(fileName + " exists.\n")
+        return False
+
+    else:
+        return True
+
+
 def prepareFiles():
     """
     This function prepares the files and folders necessary for the program to run
@@ -76,6 +93,9 @@ def prepareFiles():
             logging.info(toCreate[i] + " already exists.")
 
     os.chdir(BASE_DIR)
+
+    if not os.path.exists("config/database.txt"):
+        open("config/badDays.txt", 'x').close()
 
     if not os.path.exists("config/badDays.txt"):
         open("config/badDays.txt", 'x').close()
@@ -123,6 +143,27 @@ def cleanDuplicatesFromDB(file):
     conn.commit()
     cur.close()
     conn.close()
+
+
+def logWrite(dateFile, check = None):
+    """
+    DataFile parameter is the date that is added to a list of dates which have been added to the database
+    Check parameter signifies whether to check if date exists in the file already
+    """
+
+    if check is None:
+        with open("config/database.txt", 'a+') as file:
+            file.write(dateFile + '\n')
+    else:
+        with open("config/database.txt", 'r') as file:
+            argList = []
+            [argList.append(fileiter) for fileiter in file.readline()]
+            argList.sort()
+
+            if dateFile in argList:
+                return True
+            else:
+                return False
 
 
 def getHash(fileName, whichHash = 'md5'):
@@ -183,14 +224,11 @@ def downloadPlays(end = None, startDate = None, after = None, before = None, ove
         exit(1)
 
     ######################################
-
-    holidayList = []
     with open("config/tradingHolidays.txt", 'r') as holidays:
-        [holidayList.append(i[:-1]) for i in holidays.readlines()]  # Dates are recorded as 07-17-20, the [:-1] takes off the null terminator
+        [HOLIDAY_LIST.append(i[:-1]) for i in holidays.readlines()]  # Dates are recorded as 07-17-20, the [:-1] takes off the null terminator
 
-    badDates = []  # Dates where nothing was uploaded but should have due to error etc.. None so far
-    with open("config/badDays.txt", 'r') as file:
-        [badDates.append(i[:-1]) for i in file.readlines()]  # Dates are recorded as 07-17-20, the -1 takes off the null terminator
+    with open("config/badDays.txt", 'r') as file:  # Dates where nothing was uploaded but should have due to error etc.. None so far
+        [BAD_DATES.append(i[:-1]) for i in file.readlines()]  # Dates are recorded as 07-17-20, the -1 takes off the null terminator
 
     ######################################
 
@@ -223,54 +261,49 @@ def downloadPlays(end = None, startDate = None, after = None, before = None, ove
         dateFileName = "{0:02d}-{1:02d}-{2}".format(day, month, year)  # Month and date are formatted to two decimal places
         fileName = dateFileName + '.' + "json"
 
-        if days.weekday() > 4:
-            print(fileName + " is a weekend, skipping.\n")
-        elif fileName[0:8] in holidayList:
-            print(fileName + " is a trading holiday, skipping.\n")
-        elif os.path.exists(FILE_DIR + fileName) and override is False:
-            print(fileName + " exists.\n")
-        # If the file exists and the override is set to True OR the file doesnt exists, download the files
-        elif (os.path.exists(FILE_DIR + fileName) and override is True) or (not os.path.exists(BASE_DIR + '/' + fileName)):
-            if override:
-                print(fileName + " exists but override is signaled, creating...")
+        if dateIsGood(fileName, days):
+            # If the file exists and the override is set to True OR the file doesnt exists, download the files
+            if (os.path.exists(FILE_DIR + fileName) and override is True) or (not os.path.exists(BASE_DIR + '/' + fileName)):
+                if override:
+                    print(fileName + " exists but override is signaled, creating...")
+                else:
+                    print(fileName + " does not exists, creating...")
+
+                # If playdate, after and before are all passed in as parameters
+                if after is not None and before is not None and startDate is not None:
+                    afterDate = dateFileName + " " + after
+                    beforeDate = dateFileName + " " + before
+                else:
+                    afterDate = dateFileName + " 06:25"  # 6:25 in case plays start a bit earlier, just in case preparation
+                    beforeDate = dateFileName + " 13:05"  # 1:05 in case plays start a bit late or get delayed, just in case preparation
+
+                logging.debug("Output: " + fileName)
+
+                # arguments passed to terminal to execute the dotnet command necessary to capture discord plays
+                terminalCommands = ["dotnet",  # invokes dotnet command with the following as arguments
+                                    dllLocation,  # location of exporter program
+                                    "export",  # option  that specifies we will be exporting a channel
+                                    "-t", userToken,  # use authorization token of user's account
+                                    "-c", channelID,  # channel ID of channel to be exported
+                                    "-o", FILE_DIR + fileName,  # output file for the exported data
+                                    "--dateformat", "\"dd-MM-yy hh:mm\"",  # date format for the after and before parameters
+                                    "--after", afterDate,  # Get all channel messages after this date and time
+                                    "--before", beforeDate,  # Get all channel messages before this date and time
+                                    "-f", "json"]  # HtmlDark, HtmlLight, PlainText Json or Csv
+
+                # [print(terminalCommands[arg]) for arg in range(len(terminalCommands))]
+
+                # input("Verify: ")
+
+                subprocess.call(terminalCommands)
+
+                if not CONFIG_DIR + fileName:
+                    print("File not created.")
+                    logging.error("File not created.")
+
+                    raise FileNotFoundError
             else:
-                print(fileName + " does not exists, creating...")
-
-            # If playdate, after and before are all passed in as parameters
-            if after is not None and before is not None and startDate is not None:
-                afterDate = dateFileName + " " + after
-                beforeDate = dateFileName + " " + before
-            else:
-                afterDate = dateFileName + " 06:25"  # 6:25 in case plays start a bit earlier, just in case preparation
-                beforeDate = dateFileName + " 13:05"  # 1:05 in case plays start a bit late or get delayed, just in case preparation
-
-            logging.debug("Output: " + fileName)
-
-            # arguments passed to terminal to execute the dotnet command necessary to capture discord plays
-            terminalCommands = ["dotnet",  # invokes dotnet command with the following as arguments
-                                dllLocation,  # location of exporter program
-                                "export",  # option  that specifies we will be exporting a channel
-                                "-t", userToken,  # use authorization token of user's account
-                                "-c", channelID,  # channel ID of channel to be exported
-                                "-o", FILE_DIR + fileName,  # output file for the exported data
-                                "--dateformat", "\"dd-MM-yy hh:mm\"",  # date format for the after and before parameters
-                                "--after", afterDate,  # Get all channel messages after this date and time
-                                "--before", beforeDate,  # Get all channel messages before this date and time
-                                "-f", "json"]  # HtmlDark, HtmlLight, PlainText Json or Csv
-
-            # [print(terminalCommands[arg]) for arg in range(len(terminalCommands))]
-
-            # input("Verify: ")
-
-            subprocess.call(terminalCommands)
-
-            if not CONFIG_DIR + fileName:
-                print("File not created.")
-                logging.error("File not created.")
-
-                raise FileNotFoundError
-        else:
-            logging.info("The weekday, holiday else clause.")
+                logging.info("The weekday, holiday else clause.")
 
 
 def file_to_DB(sourceFile = None, dbName = None):
@@ -339,84 +372,90 @@ def file_to_DB(sourceFile = None, dbName = None):
                                      (?P<Diff>-?\d{1,4}(\.\d{1,2})?)%\s*(Purchase|Underlying):\s*\$
                                      (?P<Price>\d{1,4}(\.\d{1,2})?.*)''', re.VERBOSE)
 
-    backup___pattern = re.compile(r'''''', re.VERBOSE)
+    ######################################
 
-    # Other methods will be needed to extract data from cvs and json files
     for inputFile in argList:  # Checks every file in arglist
-        logging.info("Checking file: [{0}]".format(inputFile))
-        strikeData = []  # Will hold the information after data is scraped from html files
-        strikePlays = []
+        if inputFile[:8] not in logWrite(inputFile[:8], ""):
+            logging.info("Checking file: [{0}]".format(inputFile))
+            strikeData = []  # Will hold the information after data is scraped from html files
+            strikePlays = []  # Will hold the data as received from the files, before cleaning up text
 
-        # logging.info("USING JSON FILES")
+            # logging.info("USING JSON FILES")
 
-        with open(inputFile, 'r') as jsonfile:
-            parsejson = json.loads(jsonfile.read())
+            with open(inputFile, 'r') as jsonfile:
+                parsejson = json.loads(jsonfile.read())
 
-        for i in range(len(parsejson["messages"])):
-            data = parsejson["messages"][i]["content"]
+            for i in range(len(parsejson["messages"])):
+                data = parsejson["messages"][i]["content"]
 
-            if data != '':
-                strikePlays.append(parsejson["messages"][i]["content"])
-            else:
-                strikePlays.append(parsejson["messages"][i]["embeds"][0]["title"] + parsejson["messages"][i]["embeds"][0]["description"])
-                # print("Parse addition: ", strikePlays[-1])
+                if data != '':
+                    strikePlays.append(parsejson["messages"][i]["content"])
+                else:
+                    strikePlays.append(parsejson["messages"][i]["embeds"][0]["title"] + parsejson["messages"][i]["embeds"][0]["description"])
+                    # print("Just appended: ", strikePlays[-1])
 
-        for i in range(len(strikePlays)):
-            string = []
+            for i in range(len(strikePlays)):
+                string = []
 
-            for j in range(len(strikePlays[i])):
-                if ord(strikePlays[i][j]) < 122:  # If it is a printable character
-                    string.append(strikePlays[i][j])  # append it to the string
-            strikeData.append(string)  # Finalize the changes and add it to the list of cleaned up data
+                for j in range(len(strikePlays[i])):
+                    if ord(strikePlays[i][j]) < 122:  # If it is a printable character
+                        string.append(strikePlays[i][j])  # append it to the string
+                strikeData.append(string)  # Finalize the changes and add it to the list of cleaned up data
 
-        for k in range(len(strikeData)):  # Delete excess escaped characters located in the front of the string
-            while not strikeData[k][0].isalpha():  # Stops deleting characters when the unnecessary characters are gone.
-                del strikeData[k][0]
-            strikeData[k] = ''.join(strikeData[k])  # sd[k] is a list of strings, this turns said list into one string
+            for k in range(len(strikeData)):  # Delete excess escaped characters located in the front of the string
+                while not strikeData[k][0].isalpha():  # Stops deleting characters when the unnecessary characters are gone.
+                    del strikeData[k][0]
+                strikeData[k] = ''.join(strikeData[k])  # sd[k] is a list of strings, this turns said list into one string
 
-        for i in range(len(strikeData)):  # each play is scraped for the play strike, price, date etc
-            details = []  # The data captured will be stored here and then passed to the database
-            # logging.debug('*' * 20 + str(i) + '*' * 20)
-            match = pattern.match(strikeData[i])  # A single play is captured here and the data about it will be parsed through regular expression
+            ######################################
 
-            # logging.debug("FIRST MATCH")
+            for i in range(len(strikeData)):  # each play is scraped for the play strike, price, date etc
+                details = []  # The data captured will be stored here and then passed to the database
+                match = pattern.match(strikeData[i])  # A single play is captured here and the data about it will be parsed through regular expression
+                # logging.debug("FIRST MATCH")
 
-            if match is None:  # if the way the data is organized in the html file changes, the pattern will fail
-                match = backup_pattern.match(strikeData[i])  # Backup pattern is used
-                # logging.debug("SECOND MATCH")
+                if match is None:  # if the way the data is organized in the html file changes, the pattern will fail
+                    match = backup_pattern.match(strikeData[i])  # Backup pattern is used
+                    # logging.debug("SECOND MATCH")
 
-                if match is None:
-                    match = backup__pattern.match(strikeData[i])
-                    # logging.debug("THIRD MATCH")
+                    if match is None:
+                        match = backup__pattern.match(strikeData[i])
+                        # logging.debug("THIRD MATCH")
 
-                    if match is None:  # if the backup pattern fails
-                        # input("Stop here and proceed with caution, match is None.")
+                        if match is None:  # if the backup pattern fails
+                            # input("Stop here and proceed with caution, match is None.")
 
-                        # When the output and organization of the file changes, a new regex expression is necessary to capture data
-                        # This show how the new data is organized so I can create backup patterns
-                        logging.error("Backup pattern failed, new pattern necessary")
-                        logging.error('*' * 20 + '\n' + strikeData[i] + '\n' + '*' * 20)
+                            # When the output and organization of the file changes, a new regex expression is necessary to capture data
+                            # This show how the new data is organized so I can create backup patterns
+                            logging.error("Backup pattern failed, new pattern necessary")
+                            logging.error('*' * 20 + '\n' + strikeData[i] + '\n' + '*' * 20)
 
-                        with open(CONFIG_DIR + "designChangeLog.txt", 'a+') as designChangeLog:
-                            designChangeLog.write(strikeData[i] + "#####")
+                            with open(CONFIG_DIR + "designChangeLog.txt", 'a+') as designChangeLog:
+                                designChangeLog.write(strikeData[i] + "#####")
 
-            for group_iter in range(11):
-                if group_iter <= 2:  # The first three are strings
-                    details.append(match.group(STRIKEINFO[group_iter]))
-                else:  # Everything after is numeric
-                    details.append(float(match.group(STRIKEINFO[group_iter]).replace(',', '')))
+                for group_iter in range(11):
+                    if group_iter <= 2:  # The first three are strings
+                        details.append(match.group(STRIKEINFO[group_iter]))
+                    else:  # Everything after is numeric
+                        details.append(float(match.group(STRIKEINFO[group_iter]).replace(',', '')))
 
-            # Append the date and time created
-            details.append(parsejson["messages"][i]["timestamp"][:10])
-            details.append(parsejson["messages"][i]["timestamp"][11:19])
+                ######################################
 
-            logging.info(details)
+                # Append the date and time created
+                details.append(parsejson["messages"][i]["timestamp"][:10])
+                details.append(parsejson["messages"][i]["timestamp"][11:19])
 
-            cursor.execute('''INSERT INTO Plays (symbol, date, style, strike, bid, ask, interest, volume, iv, diff, price, createdDate, createdTime)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', details)
-            conn.commit()
+                logging.info(details)
 
-        print("File analysis complete, {0} records inserted into database.{1}".format(len(strikeData), "\n\t" + '*' * 25))
+                cursor.execute('''INSERT INTO Plays (symbol, date, style, strike, bid, ask, interest, volume, iv, diff, price, createdDate, createdTime)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', details)
+                conn.commit()
+
+            print("File analysis complete, {0} records inserted into database.{1}".format(len(strikeData), "\n\t" + '*' * 25))
+
+            logWrite(inputFile[:8])
+    else:
+        print("Dat")
 
     cursor.close()
     conn.close()
@@ -436,6 +475,9 @@ def main():
 
 
 # GLOBAL DATA
+DB_LIST = []
+BAD_DATES = []
+HOLIDAY_LIST = []
 BASE_DIR = os.getcwd() + "/UnusualWhales"  # Where the files for this program will be stored
 CONFIG_DIR = BASE_DIR + "/config/"
 FILE_DIR = BASE_DIR + "/historyByDate/"
@@ -460,4 +502,22 @@ STRIKEINFO = ["Symbol",  # string
 if __name__ == "__main__":
     start = time.time()  # Used to measure run time of the program
     main()
+
+    # os.chdir(FILE_DIR)
+    # dbList = []
+    # [dbList.append(fileiter) for fileiter in os.listdir() if fileiter.endswith("json")]
+    # dbList.append("07-03-20.json")
+    # dbList.append("08-23-20.json")
+    # dbList.sort()
+    #
+    # # for i in dbList:
+    # #     logWrite(i[:8])
+    #
+    # for i in range(len(dbList)):
+    #     if dateIsGood(dbList[i][:8]):
+    #         print("IN LIKE FLYNN.", dbList[i])
+    #     else:
+    #         print("DATE IS BAD!!!!", dbList[i])
+
     print("All done!\nTotal runtime: {0:02} seconds.".format(time.time() - start))
+    input("Here.")
