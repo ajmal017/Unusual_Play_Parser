@@ -4,9 +4,9 @@
 # add search by field name
 # add gui progress bar(s)
 # Add command line access
-# Fetching the plays individually takes too much time.
+# Fetching the plays individually takes extra much time.
 #   Scan in whole chat history and separate by date
-# Add list of days to be scanned to db
+
 
 # Emoji Guide
 # :rotating_light: - Options expire within the week 128680
@@ -28,23 +28,28 @@ import hashlib  # Retrieving and comparing hashes
 import logging  # For selectively writing program information to the console
 import subprocess  # Used to issues terminal commands
 from datetime import date, timedelta  # Very useful in calculations involving dates
+from colorama import Style, Fore, init, deinit  # For turning the terminal text different colors
 
 
-def errorLog():
+def error_log():
     """
-    Plays that aren't captured by the current regex patterns are logged. A new backup pattern will be added to capture it.
+    Plays that aren't captured by the current regex patterns are logged to be studied. Helps in making new regexes.
+
+    Function has no parameters except the global ones
+
+    Has no return value
     """
 
-    if not os.path.exists("/config/designChangeLog.txt"):
-        open("/config/designChangeLog.txt", 'x').close()  # Creates if it doesn't exist,
+    if not os.path.exists(CONFIG_DIR + "designChangeLog.txt"):
+        open(CONFIG_DIR + "designChangeLog.txt", 'x').close()  # Creates if it doesn't exist,
 
     else:
         textList = []
-        with open("/config/designChangeLog.txt", 'r') as designChangeLog:
+        with open(CONFIG_DIR + "designChangeLog.txt", 'r') as designChangeLog:
             allText = designChangeLog.read()
 
             if allText == '':
-                print("No errors reported.")
+                logging.info("No errors reported, no new patterns necessary.")
             else:
                 allText = allText.split("#####")
                 for erroriter in range(len(allText)):
@@ -53,34 +58,13 @@ def errorLog():
                 [print(textList[listiter] + '\n') for listiter in range(len(textList))]
 
 
-def dateIsGood(fileName, days = None, override = False):
-    # if days is None:
-    #     days = date(int("20" + fileName[6:8]), int(fileName[:2]), int(fileName[3:5]))
-
-    if days is not None and days.weekday() > 4:
-        print(fileName + " is a weekend, skipping.\n")
-        return False
-
-    elif fileName[0:8] in HOLIDAY_LIST:
-        print(fileName + " is a trading holiday, skipping.\n")
-        return False
-
-    elif fileName[0:8] in BAD_DATES:
-        print(fileName + " is a trading holiday, skipping.\n")
-        return False
-
-    elif os.path.exists(FILE_DIR + fileName) and override is False:
-        print(fileName + " exists.\n")
-        return False
-
-    else:
-        return True
-
-
-def prepareFiles():
+def prepare_files():
     """
     This function prepares the files and folders necessary for the program to run
-    BASE_DIR parameter is the directory where the mandatory files will be placed
+
+    Function has no parameters except the global ones
+
+    Has no return value
     """
 
     # Make sure the necessary directories are in place
@@ -94,11 +78,11 @@ def prepareFiles():
 
     os.chdir(BASE_DIR)
 
-    if not os.path.exists("config/database.txt"):
-        open("config/badDays.txt", 'x').close()
+    if not os.path.exists(CONFIG_DIR + "database.txt"):
+        open(CONFIG_DIR + "database.txt", 'x').close()
 
-    if not os.path.exists("config/badDays.txt"):
-        open("config/badDays.txt", 'x').close()
+    if not os.path.exists(CONFIG_DIR + "badDays.txt"):
+        open(CONFIG_DIR + "badDays.txt", 'x').close()
 
     # The file that holds the user's Discords token, channel id and dll location.
     # The Unusual Whales channel ID is already filled as can be seen
@@ -113,10 +97,17 @@ def prepareFiles():
                        "01-01-21\n01-18-21\n02-15-21\n04-02-21\n05-31-21\n07-05-21\n09-06-21\n11-25-21\n12-24-21\n\n" +
                        "01-01-22\n01-17-22\n02-21-22\n04-15-22\n05-30-22\n07-04-22\n09-05-22\n11-24-22\n12-26-22\n\n")
 
+    # If removing duplicates from dates list
+    # old_list = lambda old_list: list(set(numbers))
 
-def cleanDuplicatesFromDB(file):
+
+def remove_extras_from_db(file):
     """
-    Used to filter out duplicate plays from daabase file
+    Used to filter out duplicate plays from database file
+
+    File parameter is the name of the file to remove duplicates from
+
+    Has no return value
     """
 
     if not os.path.exists(CONFIG_DIR + file):
@@ -127,7 +118,7 @@ def cleanDuplicatesFromDB(file):
     fileCopy = file[:file.rfind('.')] + '2' + file[file.rfind('.'):]  # Takes the filename and makes another filename with a '2' before the '.' - A.html & A2.html
     shutil.copy(CONFIG_DIR + file, CONFIG_DIR + fileCopy)  # Creates the copy
 
-    if getHash(file) != getHash(fileCopy):  # Makes sure that the two file are the same
+    if get_hash(file) != get_hash(fileCopy):  # Makes sure that the two file are the same
         os.unlink(CONFIG_DIR + fileCopy)
         raise Exception("Plays damaged, abort.")
     else:
@@ -145,30 +136,34 @@ def cleanDuplicatesFromDB(file):
     conn.close()
 
 
-def logWrite(dateFile, check = None):
+def date_in_db(dateFile):
     """
+    Checks if the file represented by the parameter has already been added to the database
+
     DataFile parameter is the date that is added to a list of dates which have been added to the database
-    Check parameter signifies whether to check if date exists in the file already
+
+    Returns True if passed in file is in the list of dates already in the database, false if not added to database
     """
 
-    if check is None:
-        with open("config/database.txt", 'a+') as file:
-            file.write(dateFile + '\n')
-    else:
-        with open("config/database.txt", 'r') as file:
-            argList = []
-            [argList.append(fileiter) for fileiter in file.readline()]
-            argList.sort()
+    with open(CONFIG_DIR + "database.txt", 'r') as file:
+        argList = []
+        [argList.append(i[:-1]) for i in file.readlines()]
+        argList.sort()
 
-            if dateFile in argList:
-                return True
-            else:
-                return False
+        if dateFile in argList:
+            return True
+        else:
+            return False
 
 
-def getHash(fileName, whichHash = 'md5'):
+def get_hash(fileName, whichHash = 'md5'):
     """
     Gets either the sha1 or md5 hash, used to make sure database copies are not corrupted
+
+    FileName parameter is a string of the file that will be checked for hash
+    WhichHash parameter specifies which hash style to use
+
+    Returns the hash value of the file
     """
 
     # https: // stackoverflow.com / a / 22058673 / 1902959
@@ -200,117 +195,15 @@ def getHash(fileName, whichHash = 'md5'):
     return hashOutput()
 
 
-def downloadPlays(end = None, startDate = None, after = None, before = None, override = False):
+def file_to_db(sourceFile = None, dbName = None):
     """
-    Using the DiscordChatExporter, the discord chat messages are exported to an html
-    There is an html file for each date and the data for only the plays is extracted
-    FileType is a required argument for the output file type: HtmlDark, HtmlLight, PlainText Json or Csv
-    End is an optional parameter specifying the number of days to capture data for
-    StartDate is an optional parameter which is the date to begin at, will default to 06-16-20, the first day the plays are available
-    After is an optional parameter specifying that all plays after that time will be captured
-    Before is an optional parameter specifying that all plays before that time will be captured
-    Override is an optional parameter, used to specify if the dates should be downloaded if it already exists
-    """
+    Takes a file and extracts the option play data adding it to the database of all plays
 
-    with open("config/tokens.txt", 'r') as tokens:
-        userToken = tokens.readline().split("\"")[1]
-        channelID = tokens.readline().split("\"")[1]
-        dllLocation = tokens.readline().split("\"")[1]
-
-    # Exit if any of these fields are blank, exit. All three are necessary for the program to work
-    if userToken == '' or dllLocation == '' or channelID == '':
-        print("Please insert the below items in the \"UnusualWhales/config/tokens.txt\" and restart program:\n" +
-              "\tDiscord user token\n\tThe location of the DiscordChatExporter.Cli.dll file")
-        exit(1)
-
-    ######################################
-    with open("config/tradingHolidays.txt", 'r') as holidays:
-        [HOLIDAY_LIST.append(i[:-1]) for i in holidays.readlines()]  # Dates are recorded as 07-17-20, the [:-1] takes off the null terminator
-
-    with open("config/badDays.txt", 'r') as file:  # Dates where nothing was uploaded but should have due to error etc.. None so far
-        [BAD_DATES.append(i[:-1]) for i in file.readlines()]  # Dates are recorded as 07-17-20, the -1 takes off the null terminator
-
-    ######################################
-
-    if startDate is None:
-        sdate = date(2020, 6, 16)  # Start is 06/16/2020, first date plays were generated by Unusual Whales
-    else:
-        sdate = date(startDate[0], startDate[1], startDate[2])  # Year, month and date
-
-    if type(end) == date:
-        edate = date(end[0], end[1], end[2])
-    elif type(end) is int:
-        edate = sdate + timedelta(days = end)
-    else:  # If it is a new day and before the market opens, don't include the current day
-        if date.today().timetuple()[3] <= 6 and date.today().timetuple()[4] < 30:
-            edate = date.today() - timedelta(days = 1)
-        else:
-            edate = date.today()
-
-    delta = edate - sdate
-
-    ######################################
-
-    # starts at s(tart)date and moves delta days forward to get range of dates
-    for i in range(delta.days + 1):
-        os.chdir(FILE_DIR)
-        days = sdate + timedelta(days = i)
-        month = days.timetuple()[2]  # Time tuple returns a tuple of year, day month
-        day = days.timetuple()[1]
-        year = str(days.timetuple()[0])[-2:]
-        dateFileName = "{0:02d}-{1:02d}-{2}".format(day, month, year)  # Month and date are formatted to two decimal places
-        fileName = dateFileName + '.' + "json"
-
-        if dateIsGood(fileName, days):
-            # If the file exists and the override is set to True OR the file doesnt exists, download the files
-            if (os.path.exists(FILE_DIR + fileName) and override is True) or (not os.path.exists(BASE_DIR + '/' + fileName)):
-                if override:
-                    print(fileName + " exists but override is signaled, creating...")
-                else:
-                    print(fileName + " does not exists, creating...")
-
-                # If playdate, after and before are all passed in as parameters
-                if after is not None and before is not None and startDate is not None:
-                    afterDate = dateFileName + " " + after
-                    beforeDate = dateFileName + " " + before
-                else:
-                    afterDate = dateFileName + " 06:25"  # 6:25 in case plays start a bit earlier, just in case preparation
-                    beforeDate = dateFileName + " 13:05"  # 1:05 in case plays start a bit late or get delayed, just in case preparation
-
-                logging.debug("Output: " + fileName)
-
-                # arguments passed to terminal to execute the dotnet command necessary to capture discord plays
-                terminalCommands = ["dotnet",  # invokes dotnet command with the following as arguments
-                                    dllLocation,  # location of exporter program
-                                    "export",  # option  that specifies we will be exporting a channel
-                                    "-t", userToken,  # use authorization token of user's account
-                                    "-c", channelID,  # channel ID of channel to be exported
-                                    "-o", FILE_DIR + fileName,  # output file for the exported data
-                                    "--dateformat", "\"dd-MM-yy hh:mm\"",  # date format for the after and before parameters
-                                    "--after", afterDate,  # Get all channel messages after this date and time
-                                    "--before", beforeDate,  # Get all channel messages before this date and time
-                                    "-f", "json"]  # HtmlDark, HtmlLight, PlainText Json or Csv
-
-                # [print(terminalCommands[arg]) for arg in range(len(terminalCommands))]
-
-                # input("Verify: ")
-
-                subprocess.call(terminalCommands)
-
-                if not CONFIG_DIR + fileName:
-                    print("File not created.")
-                    logging.error("File not created.")
-
-                    raise FileNotFoundError
-            else:
-                logging.info("The weekday, holiday else clause.")
-
-
-def file_to_DB(sourceFile = None, dbName = None):
-    """
     Dates is an optional parameter representing a list of dates to be passed to the db creator
     SourceFile is an optional parameter. It is an html file that should have the option plays scraped from its contents
     DbName is an optional parameter. It is the name of the database the plays should be added to. Defaults to "/Users/X/DB/WhalePlays.db"
+
+    Has no return value
     """
 
     argList = []  # Will hold the files to parse for option plays
@@ -333,7 +226,6 @@ def file_to_DB(sourceFile = None, dbName = None):
                                                        bid REAL, ask REAL, interest INTEGER, volume INTEGER,
                                                        iv REAL, diff REAL, price REAL, createdDate TEXT, createdTime TEXT)''')
 
-    # The pattern used by  majority of the html files
     # Expiration date, Call/Put, Strike, Bid, Ask, Interest, Volume IV, and Underlying are gathered by the below patterns
     pattern = re.compile(r'''(?P<Symbol>\s*\w{1,5})\s*
                              (?P<Date>\d{4}-\d{2}-\d{2})\s*
@@ -375,7 +267,7 @@ def file_to_DB(sourceFile = None, dbName = None):
     ######################################
 
     for inputFile in argList:  # Checks every file in arglist
-        if inputFile[:8] not in logWrite(inputFile[:8], ""):
+        if not date_in_db(inputFile[:8], ""):
             logging.info("Checking file: [{0}]".format(inputFile))
             strikeData = []  # Will hold the information after data is scraped from html files
             strikePlays = []  # Will hold the data as received from the files, before cleaning up text
@@ -392,7 +284,6 @@ def file_to_DB(sourceFile = None, dbName = None):
                     strikePlays.append(parsejson["messages"][i]["content"])
                 else:
                     strikePlays.append(parsejson["messages"][i]["embeds"][0]["title"] + parsejson["messages"][i]["embeds"][0]["description"])
-                    # print("Just appended: ", strikePlays[-1])
 
             for i in range(len(strikePlays)):
                 string = []
@@ -412,18 +303,18 @@ def file_to_DB(sourceFile = None, dbName = None):
             for i in range(len(strikeData)):  # each play is scraped for the play strike, price, date etc
                 details = []  # The data captured will be stored here and then passed to the database
                 match = pattern.match(strikeData[i])  # A single play is captured here and the data about it will be parsed through regular expression
-                # logging.debug("FIRST MATCH")
+                logging.debug("FIRST MATCH")
 
                 if match is None:  # if the way the data is organized in the html file changes, the pattern will fail
                     match = backup_pattern.match(strikeData[i])  # Backup pattern is used
-                    # logging.debug("SECOND MATCH")
+                    logging.debug("SECOND MATCH")
 
                     if match is None:
                         match = backup__pattern.match(strikeData[i])
-                        # logging.debug("THIRD MATCH")
+                        logging.debug("THIRD MATCH")
 
                         if match is None:  # if the backup pattern fails
-                            # input("Stop here and proceed with caution, match is None.")
+                            logging.debug(input("Stop here and proceed with caution, match is None."))
 
                             # When the output and organization of the file changes, a new regex expression is necessary to capture data
                             # This show how the new data is organized so I can create backup patterns
@@ -444,34 +335,181 @@ def file_to_DB(sourceFile = None, dbName = None):
                 # Append the date and time created
                 details.append(parsejson["messages"][i]["timestamp"][:10])
                 details.append(parsejson["messages"][i]["timestamp"][11:19])
-
                 logging.info(details)
-
                 cursor.execute('''INSERT INTO Plays (symbol, date, style, strike, bid, ask, interest, volume, iv, diff, price, createdDate, createdTime)
                                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', details)
                 conn.commit()
 
             print("File analysis complete, {0} records inserted into database.{1}".format(len(strikeData), "\n\t" + '*' * 25))
 
-            logWrite(inputFile[:8])
-    else:
-        print("Dat")
+            with open(CONFIG_DIR + "database.txt", 'a+') as file:
+                file.write(inputFile[:8] + '\n')
+        else:
+            logging.info(inputFile + " already in database.")
 
     cursor.close()
     conn.close()
 
 
+def download_date(fileName, days = None, override = False):
+    """
+    Every day has a file which contains all the Unusual Whale plays issued on that day
+
+    FileName is a parameter that is used to determine if the date it represents needs to be downloaded
+    Days is a parameter used to determine if the day passed in is a weekday or not
+    Override parameter is used to flag a file that exists but should be downloaded again
+
+    Returns True if the file for the passed in date needs to be downloaded, otherwise false if no download specified or needed
+    """
+
+    if days is not None and days.weekday() > 4:
+        logging.info(fileName + " is a weekend, skipping.\n")
+        return False
+
+    elif fileName[0:8] in HOLIDAY_LIST:
+        logging.info(fileName + " is a trading holiday, skipping.\n")
+        return False
+
+    elif fileName[0:8] in BAD_DATES:
+        logging.info(fileName + " is a trading holiday, skipping.\n")
+        return False
+
+    elif os.path.exists(FILE_DIR + fileName) and override is False:
+        logging.info(fileName + " exists.\n")
+        return False
+
+    else:
+        return True
+
+
+def download_plays(end = None, startDate = None, after = None, before = None, override = False):
+    """
+    Using the DiscordChatExporter, the discord chat messages are exported to a json file. A file for each date.
+
+    FileType is a required argument for the output file type: HtmlDark, HtmlLight, PlainText Json or Csv
+    End is an optional parameter specifying the number of days to capture data for
+    StartDate is an optional parameter which is the date to begin at, will default to 06-16-20, the first day the plays are available
+    After is an optional parameter specifying that all plays after that time will be captured
+    Before is an optional parameter specifying that all plays before that time will be captured
+    Override is an optional parameter, used to specify if the dates should be downloaded if it already exists
+
+    Has no return value
+    """
+
+    with open(CONFIG_DIR + "tokens.txt", 'r') as tokens:
+        userToken = tokens.readline().split("\"")[1]
+        channelID = tokens.readline().split("\"")[1]
+        dllLocation = tokens.readline().split("\"")[1]
+
+    # Exit if any of these fields are blank, exit. All three are necessary for the program to work
+    if userToken == '' or dllLocation == '' or channelID == '':
+        init()  # Only needed for Windows
+        print(f"{Fore.CYAN}\nPlease insert the below items in the \"UnusualWhales/config/tokens.txt\" and restart program:\n" +
+              f"\tDiscord user token\n\tThe location of the DiscordChatExporter.Cli.dll file{Style.RESET_ALL}")
+        deinit()
+        exit(1)
+
+    ######################################
+    with open(CONFIG_DIR + "tradingHolidays.txt", 'r') as holidays:
+        [HOLIDAY_LIST.append(i[:-1]) for i in holidays.readlines()]  # Dates are recorded as 07-17-20, the [:-1] takes off the null terminator
+
+    with open(CONFIG_DIR + "badDays.txt", 'r') as file:  # Dates where nothing was uploaded but should have due to error etc.. None so far
+        [BAD_DATES.append(i[:-1]) for i in file.readlines()]  # Dates are recorded as 07-17-20, the -1 takes off the null terminator
+
+    ######################################
+
+    if startDate is None:
+        sdate = date(2020, 6, 16)  # Start is 06/16/2020, first date plays were generated by Unusual Whales
+    else:
+        sdate = date(startDate[0], startDate[1], startDate[2])  # Year, month and date
+
+    if type(end) == date:
+        edate = date(end[0], end[1], end[2])
+    elif type(end) is int:
+        edate = sdate + timedelta(days = end)
+    else:  # If it is a new day and before the market opens, don't include the current day
+        if (time.localtime()[3] < 6) or (time.localtime()[3] == 6 and date.today().timetuple()[4] < 30):
+            edate = date.today() - timedelta(days = 1)
+        else:
+            edate = date.today()
+
+    delta = edate - sdate
+
+    ######################################
+
+    # starts at s(tart)date and moves delta days forward to get range of dates
+    for i in range(delta.days + 1):
+        os.chdir(FILE_DIR)
+        days = sdate + timedelta(days = i)
+        month = days.timetuple()[2]  # Time tuple returns a tuple of year, day month
+        day = days.timetuple()[1]
+        year = str(days.timetuple()[0])[-2:]
+        dateFileName = "{0:02d}-{1:02d}-{2}".format(day, month, year)  # Month and date are formatted to two decimal places
+        fileName = dateFileName + ".json"
+
+        if download_date(fileName, days):
+            # If the file exists and the override is set to True OR the file doesnt exists, download the files
+            if (os.path.exists(FILE_DIR + fileName) and override is True) or (not os.path.exists(BASE_DIR + '/' + fileName)):
+                if override:
+                    print(fileName + " exists but override is signaled, creating...")
+                else:
+                    print(fileName + " does not exists, creating...")
+
+                # If playdate, after and before are all passed in as parameters
+                if after is not None and before is not None and startDate is not None:
+                    afterDate = dateFileName + " " + after
+                    beforeDate = dateFileName + " " + before
+                else:
+                    afterDate = dateFileName + " 06:25"  # 6:25 in case plays start a bit earlier, just in case preparation
+                    beforeDate = dateFileName + " 13:05"  # 1:05 in case plays start a bit late or get delayed, just in case preparation
+
+                logging.debug("Output: " + fileName)
+
+                # arguments passed to terminal to execute the dotnet command necessary to capture discord plays
+                terminalCommands = ["dotnet",  # invokes dotnet command with the following as arguments
+                                    dllLocation,  # location of exporter program
+                                    "export",  # option  that specifies we will be exporting a channel
+                                    "-t", userToken,  # use authorization token of user's account
+                                    "-c", channelID,  # channel ID of channel to be exported
+                                    "-o", FILE_DIR + fileName,  # output file for the exported data
+                                    "--dateformat", "\"dd-MM-yy hh:mm\"",  # date format for the after and before parameters
+                                    "--after", afterDate,  # Get all channel messages after this date and time
+                                    "--before", beforeDate,  # Get all channel messages before this date and time
+                                    "-f", "json"]  # HtmlDark, HtmlLight, PlainText Json or Csv
+
+                [logging.debug(i) for i in terminalCommands]
+
+                subprocess.call(terminalCommands)
+
+                if not CONFIG_DIR + fileName:
+                    print("File not created.")
+                    logging.error("File not created.")
+
+                    raise FileNotFoundError
+            else:
+                logging.info("The weekday, holiday else clause.")
+
+
 def main():
+    """
+    Executes other functions and carries out the overall goal of downloading files and adding plays from files to a database.
+
+    Function has no parameters except global ones
+
+    Has no return value
+    """
     # Logging displays select info to the console
     # Debug, info, warning, error, critical is the order of levels
     logging.basicConfig(level = logging.DEBUG, format = "%(levelname)s -  %(message)s")
-    logging.disable(logging.WARNING)  # Only show warning and higher, disables levels below warning
+    logging.disable(logging.ERROR)  # Only show warning and higher, disables levels below warning
 
-    print("Plays will be collected and added to the database.\nData is being gathered, wait for it to finish....")
-    prepareFiles()
-    downloadPlays()
-    file_to_DB()
-    cleanDuplicatesFromDB(DEFAULT_DB)
+    prepare_files()
+    error_log()
+
+    print(f"\n{Fore.BLUE}Plays will be collected and added to the database.\nData is being gathered, wait for it to finish....{Style.RESET_ALL}")
+    download_plays()
+    file_to_db()
+    remove_extras_from_db(DEFAULT_DB)
 
 
 # GLOBAL DATA
@@ -482,7 +520,8 @@ BASE_DIR = os.getcwd() + "/UnusualWhales"  # Where the files for this program wi
 CONFIG_DIR = BASE_DIR + "/config/"
 FILE_DIR = BASE_DIR + "/historyByDate/"
 DEFAULT_DB = "WhalePlays.db"
-# The below list contains the column titles for the SQL database entries
+# The below list contains the column titles for the SQL database entries.
+#   There are two other columns createdDate and createdTime that are added on in file_to_db function.
 STRIKEINFO = ["Symbol",  # string
               "Date",  # string or int int int
               "Style",  # string
@@ -496,28 +535,10 @@ STRIKEINFO = ["Symbol",  # string
               "Price",  # int
               "ChangePercent",  # int, (price - strike) / price
               "ChangeCost"]  # int, (price - strike)
-                # createdDate is added on in file_to_DB function
-                # createdTime is added on in file_to_DB function
+                # createdDate is added on in file_to_db function
+                # createdTime is added on in file_to_db function
 
 if __name__ == "__main__":
     start = time.time()  # Used to measure run time of the program
     main()
-
-    # os.chdir(FILE_DIR)
-    # dbList = []
-    # [dbList.append(fileiter) for fileiter in os.listdir() if fileiter.endswith("json")]
-    # dbList.append("07-03-20.json")
-    # dbList.append("08-23-20.json")
-    # dbList.sort()
-    #
-    # # for i in dbList:
-    # #     logWrite(i[:8])
-    #
-    # for i in range(len(dbList)):
-    #     if dateIsGood(dbList[i][:8]):
-    #         print("IN LIKE FLYNN.", dbList[i])
-    #     else:
-    #         print("DATE IS BAD!!!!", dbList[i])
-
-    print("All done!\nTotal runtime: {0:02} seconds.".format(time.time() - start))
-    input("Here.")
+    print("\n***All done, total runtime: {0:.05} seconds***".format(time.time() - start))
