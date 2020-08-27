@@ -565,7 +565,7 @@ def main():
 
     Has no return value
     """
-    
+
     # Logging displays select info to the console
     # Debug, info, warning, error, critical is the order of levels
     logging.basicConfig(level = logging.DEBUG, format = "%(levelname)s -  %(message)s")
@@ -611,8 +611,8 @@ STRIKEINFO = ["Symbol",  # string
               "Price",  # int
               "ChangePercent",  # int, (price - strike) / price
               "ChangeCost"]  # int, (price - strike)
-                # createdDate is added on in file_to_db function
-                # createdTime is added on in file_to_db function
+# createdDate is added on in file_to_db function
+# createdTime is added on in file_to_db function
 
 # Make readme
 
