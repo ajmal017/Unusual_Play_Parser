@@ -267,7 +267,7 @@ def file_to_db(sourceFile = None, dbName = None):
     ######################################
 
     for inputFile in argList:  # Checks every file in arglist
-        if not date_in_db(inputFile[:8], ""):
+        if not date_in_db(inputFile[:8]):
             logging.info("Checking file: [{0}]".format(inputFile))
             strikeData = []  # Will hold the information after data is scraped from html files
             strikePlays = []  # Will hold the data as received from the files, before cleaning up text
