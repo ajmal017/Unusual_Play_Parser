@@ -1,32 +1,38 @@
 # TODO
 # add sector for each play
-# add gui window
+# add gui and progress bar(s)
 # add search by field name
-# add gui progress bar(s)
 # Add command line access
 # Fetching the plays individually takes extra much time.
 #   Scan in whole chat history and separate by date
 
-
 # Emoji Guide
-# :rotating_light: - Options expire within the week 128680
-# :rocket: - Extra Unusual Movement 128640
-# :slot_machine: - Lottos
-# :stopwatch: - Intraday play
-# :calendar_spiral: - Overnights/Extended play 128467
+# :rotating_light: - Options expire within the week | ord = 128680
+# :rocket: - Extra Unusual Movement | ord = 128640
+# :slot_machine: - Lottos | ord = ?
+# :stopwatch: - Intraday play | ord = ?
+# :calendar_spiral: - Overnights/Extended play | ord = 128467
 
 # https://github.com/Tyrrrz/DiscordChatExporter/wiki/
 # Created the discord scraper, DiscordChatExporter
+# https://github.com/Tyrrrz/DiscordChatExporter/releases/download/2.22/DiscordChatExporter.CLI.zip
+
+# Database browser for SQLite, very handy and insanely easy to use
+# https://github.com/sqlitebrowser/sqlitebrowser/releases/download/v3.12.0/DB.Browser.for.SQLite-3.12.0.dmg
 
 import os  # For navigating the file system
 import re  # Parsing for selective text
-import time  # Used to measure complete run time of program
 import json  # Necessary for parsing json objects
+import time  # Used to measure complete run time of program
 import shutil  # Copying files
-import sqlite3  # Managing database storage
 import hashlib  # Retrieving and comparing hashes
 import logging  # For selectively writing program information to the console
+import sqlite3  # Managing database storage
+import zipfile  # Unzipping the CLI download
+import requests  # Downloading the CLI and db browser files
 import subprocess  # Used to issues terminal commands
+import webbrowser  # Open file in the user's web browser
+from pathlib import Path  # Using path.name to get access to filename in url
 from datetime import date, timedelta  # Very useful in calculations involving dates
 from colorama import Style, Fore, init, deinit  # For turning the terminal text different colors
 
@@ -45,6 +51,7 @@ def error_log():
 
     else:
         textList = []
+
         with open(CONFIG_DIR + "designChangeLog.txt", 'r') as designChangeLog:
             allText = designChangeLog.read()
 
@@ -55,6 +62,7 @@ def error_log():
                 for erroriter in range(len(allText)):
                     textList.append(allText[erroriter])
 
+                # Prints plays that were not captured by regex
                 [print(textList[listiter] + '\n') for listiter in range(len(textList))]
 
 
@@ -67,14 +75,27 @@ def prepare_files():
     Has no return value
     """
 
+    global USER_TOKEN  # Declared below
+
     # Make sure the necessary directories are in place
-    toCreate = [BASE_DIR, CONFIG_DIR, FILE_DIR]
+    toCreate = [BASE_DIR, CONFIG_DIR, FILE_DIR, DOWNLOAD_DIR]
     for i in range(len(toCreate)):
         if not os.path.exists(toCreate[i]):
             os.mkdir(toCreate[i])
             logging.info(toCreate[i] + "has been created.")
         else:
             logging.info(toCreate[i] + " already exists.")
+
+    if not os.path.exists(CONFIG_DIR + "DiscordChatExporter.CLI/"):
+        os.mkdir(CONFIG_DIR + "DiscordChatExporter.CLI/")
+
+        download_file("https://github.com/Tyrrrz/DiscordChatExporter/releases/download/2.22/DiscordChatExporter.CLI.zip")
+
+        file_zip = zipfile.ZipFile(DOWNLOAD_DIR + "DiscordChatExporter.CLI.zip")
+        file_zip.extractall(CONFIG_DIR + "DiscordChatExporter.CLI/")
+        file_zip.close()
+
+        logging.info("DiscordChatExporter has been created.")
 
     os.chdir(BASE_DIR)
 
@@ -84,15 +105,15 @@ def prepare_files():
     if not os.path.exists(CONFIG_DIR + "badDays.txt"):
         open(CONFIG_DIR + "badDays.txt", 'x').close()
 
-    # The file that holds the user's Discords token, channel id and dll location.
-    # The Unusual Whales channel ID is already filled as can be seen
-    if not os.path.exists("config/tokens.txt"):
-        with open("config/tokens.txt", 'w') as file:
-            file.write("userToken = \"\"\nchannelID = \"721759406089306223\"\ndllLocation = \"\"\n")
+    # The file that holds the user's Discords token
+    # Prepares creates the file with necessary text
+    if not os.path.exists(CONFIG_DIR + "user_token.txt"):
+        with open(CONFIG_DIR + "user_token.txt", 'w') as file:
+            file.write("user_token = \"\"\n")
 
     # A list of holidays during which markets don't trade
-    if not os.path.exists("config/tradingHolidays.txt"):
-        with open("config/tradingHolidays.txt", 'w') as file:
+    if not os.path.exists(CONFIG_DIR + "tradingHolidays.txt"):
+        with open(CONFIG_DIR + "tradingHolidays.txt", 'w') as file:
             file.write("01-01-20\n01-20-20\n02-17-20\n04-10-20\n05-25-20\n07-03-20\n09-07-20\n11-26-20\n12-25-20\n\n" +
                        "01-01-21\n01-18-21\n02-15-21\n04-02-21\n05-31-21\n07-05-21\n09-06-21\n11-25-21\n12-24-21\n\n" +
                        "01-01-22\n01-17-22\n02-21-22\n04-15-22\n05-30-22\n07-04-22\n09-05-22\n11-24-22\n12-26-22\n\n")
@@ -100,47 +121,72 @@ def prepare_files():
     # If removing duplicates from dates list
     # old_list = lambda old_list: list(set(numbers))
 
+    # Database browser, very useful for examining SQL databases
+    # download_file("https://github.com/sqlitebrowser/sqlitebrowser/releases/download/v3.12.0/DB.Browser.for.SQLite-3.12.0.dmg")
 
-def remove_extras_from_db(file):
+    # Copy the user token from the file
+    with open(CONFIG_DIR + "user_token.txt", 'r') as tokens:
+        USER_TOKEN = tokens.readline().split("\"")[1]
+
+    # If user token is blank, warn, show how to find it and then exit
+    if USER_TOKEN == '':
+        # init()  # Only needed for Windows, is part of changing the text color. Initializes the color changes.
+        print(f"{Fore.CYAN}\nPlease insert the following into \"UnusualWhales/config/user_token.txt\" and restart program:\n" +
+              f"\t**** Discord user token ****{Style.RESET_ALL}")
+        # deinit()  # Only needed for Windows, is part of changing the text color. Stops the color change.
+
+        answer = input("Would you like to open your web browser and see how to locate your user token?\nY / N: ")
+
+        if answer[0].lower() == 'y':
+            webbrowser.open("https://github.com/Tyrrrz/DiscordChatExporter/wiki/Obtaining-Token-and-Channel-IDs#how-to-get-user-token")
+
+        exit(1)
+
+    ######################################
+    with open(CONFIG_DIR + "tradingHolidays.txt", 'r') as holidays:
+        [HOLIDAY_LIST.append(i[:-1]) for i in holidays.readlines()]  # Dates are recorded as 07-17-20, the [:-1] takes off the null terminator
+
+    with open(CONFIG_DIR + "badDays.txt", 'r') as file:  # Dates where nothing was uploaded but should have due to error etc.. None so far
+        [BAD_DATES.append(i[:-1]) for i in file.readlines()]  # Dates are recorded as 07-17-20, the -1 takes off the null terminator
+
+
+def download_file(file_url):
     """
-    Used to filter out duplicate plays from database file
+    Downloads a file from a passed in url
 
-    File parameter is the name of the file to remove duplicates from
+    File_url parameter is the url of the file needing downloading
 
-    Has no return value
+    Returns True if file has been downloaded and false if it has not
     """
 
-    if not os.path.exists(CONFIG_DIR + file):
-        file = DEFAULT_DB
+    req = requests.get(file_url, stream = True)
+    p = Path(file_url)
 
-    conn = sqlite3.connect(CONFIG_DIR + file)
-    cur = conn.cursor()
-    fileCopy = file[:file.rfind('.')] + '2' + file[file.rfind('.'):]  # Takes the filename and makes another filename with a '2' before the '.' - A.html & A2.html
-    shutil.copy(CONFIG_DIR + file, CONFIG_DIR + fileCopy)  # Creates the copy
+    if not os.path.exists(DOWNLOAD_DIR + p.name):
+        print("{} download beginning.".format(p.name))  # p.name is the file name and extension for a url / file aka "test.txt"
 
-    if get_hash(file) != get_hash(fileCopy):  # Makes sure that the two file are the same
-        os.unlink(CONFIG_DIR + fileCopy)
-        raise Exception("Plays damaged, abort.")
+        # Downloads the file piece by piece and builds the whole file
+        with open(DOWNLOAD_DIR + p.name, "wb") as file:
+            for chunk in req.iter_content(chunk_size = 1024):
+                # writing one chunk at a time to the file while there is more to get
+                if chunk:
+                    file.write(chunk)
     else:
-        os.unlink(CONFIG_DIR + fileCopy)
+        logging.debug(p.name + " already exists.")
 
-    cur.execute('''SELECT DISTINCT * FROM Plays''')  # Selects entries that are not duplicates
-    data = cur.fetchall()
-    cur.execute('''DELETE FROM Plays''')
-
-    # Instead of using a for loop, you can use execute many with the variable that holds the data
-    cur.executemany('''INSERT INTO Plays VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', data)
-
-    conn.commit()
-    cur.close()
-    conn.close()
+    if req.status_code == requests.codes.ok:  # Literally means if the status is OK
+        print("{} download completed.".format(p.name))
+        return True
+    else:
+        print("File has not been downloaded.")
+        return False
 
 
-def date_in_db(dateFile):
+def datefile_in_db(dateFile):
     """
     Checks if the file represented by the parameter has already been added to the database
 
-    DataFile parameter is the date that is added to a list of dates which have been added to the database
+    DataFile parameter gets added to the file if its plays have been added to the database
 
     Returns True if passed in file is in the list of dates already in the database, false if not added to database
     """
@@ -154,6 +200,42 @@ def date_in_db(dateFile):
             return True
         else:
             return False
+
+
+def remove_extras_from_db(file):
+    """
+    Used to filter out duplicate plays from database file. Makes a copy in case something goes wrong
+
+    File parameter is the name of the file to remove duplicates from
+
+    Has no return value
+    """
+
+    if not os.path.exists(CONFIG_DIR + file):
+        file = DEFAULT_DB
+
+    conn = sqlite3.connect(CONFIG_DIR + file)
+    cur = conn.cursor()
+
+    fileCopy = file[:file.rfind('.')] + '2' + file[file.rfind('.'):]  # Takes the filename and makes another filename with a '2' before the '.' - A.json & A2.json
+    shutil.copy(CONFIG_DIR + file, CONFIG_DIR + fileCopy)  # Creates the copy
+
+    if get_hash(file) != get_hash(fileCopy):  # Makes sure that the two file are the same
+        os.unlink(CONFIG_DIR + fileCopy)
+        raise Exception("Plays damaged, abort.")  # Where the copy comes into play, when the file is damaged
+    else:
+        os.unlink(CONFIG_DIR + fileCopy)  # Delete copy after, it is no longer needed
+
+    cur.execute('''SELECT DISTINCT * FROM Plays''')  # Selects entries that are not duplicates
+    data = cur.fetchall()
+    cur.execute('''DELETE FROM Plays''')
+
+    # Instead of using a for loop, you can use execute many with the variable that holds the data
+    cur.executemany('''INSERT INTO Plays VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', data)
+
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
 def get_hash(fileName, whichHash = 'md5'):
@@ -252,6 +334,7 @@ def file_to_db(sourceFile = None, dbName = None):
                                     (?P<Diff>-?\d{1,4}(\.\d{1,2})?)%\s*(Purchase|Underlying):\s*\$
                                     (?P<Price>\d{1,4}(\.\d{1,2})?.*)''', re.VERBOSE)
 
+    # The above and this regex can be combined, but it is more readable separate. The below accounts for url's in play text
     backup__pattern = re.compile(r'''(?P<Symbol>\w{1,5})]\([a-zA-Z/\\%-:.]{65,70}\)\s*
                                      (?P<Date>\d{4}-\d{2}-\d{2})\s*
                                      (?P<Style>\w)\s*\$
@@ -267,7 +350,7 @@ def file_to_db(sourceFile = None, dbName = None):
     ######################################
 
     for inputFile in argList:  # Checks every file in arglist
-        if not date_in_db(inputFile[:8]):
+        if not datefile_in_db(inputFile[:8]):  # Just check for the digits of file name and not the extension
             logging.info("Checking file: [{0}]".format(inputFile))
             strikeData = []  # Will hold the information after data is scraped from html files
             strikePlays = []  # Will hold the data as received from the files, before cleaning up text
@@ -275,17 +358,17 @@ def file_to_db(sourceFile = None, dbName = None):
             # logging.info("USING JSON FILES")
 
             with open(inputFile, 'r') as jsonfile:
-                parsejson = json.loads(jsonfile.read())
+                parsejson = json.loads(jsonfile.read())  # ParseJson holds the json loaded from the datefile where the json was downloaded
 
             for i in range(len(parsejson["messages"])):
-                data = parsejson["messages"][i]["content"]
+                data = parsejson["messages"][i]["content"]  # Content is the field where the play data is held
 
                 if data != '':
                     strikePlays.append(parsejson["messages"][i]["content"])
-                else:
+                else:  # If the content field is empty then the data is held in the title and description fields
                     strikePlays.append(parsejson["messages"][i]["embeds"][0]["title"] + parsejson["messages"][i]["embeds"][0]["description"])
 
-            for i in range(len(strikePlays)):
+            for i in range(len(strikePlays)):  # StrikePlays holds the raw text with emojis and unnecessary characters, time to get clean
                 string = []
 
                 for j in range(len(strikePlays[i])):
@@ -326,15 +409,15 @@ def file_to_db(sourceFile = None, dbName = None):
 
                 for group_iter in range(11):
                     if group_iter <= 2:  # The first three are strings
-                        details.append(match.group(STRIKEINFO[group_iter]))
+                        details.append(match.group(STRIKEINFO[group_iter]))  # append(match.group("Bid")) etc.
                     else:  # Everything after is numeric
                         details.append(float(match.group(STRIKEINFO[group_iter]).replace(',', '')))
 
                 ######################################
 
                 # Append the date and time created
-                details.append(parsejson["messages"][i]["timestamp"][:10])
-                details.append(parsejson["messages"][i]["timestamp"][11:19])
+                details.append(parsejson["messages"][i]["timestamp"][:10])  # Date play was scanned from the chain
+                details.append(parsejson["messages"][i]["timestamp"][11:19])  # Time scanned from the options chain
                 logging.info(details)
                 cursor.execute('''INSERT INTO Plays (symbol, date, style, strike, bid, ask, interest, volume, iv, diff, price, createdDate, createdTime)
                                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', details)
@@ -342,7 +425,7 @@ def file_to_db(sourceFile = None, dbName = None):
 
             print("File analysis complete, {0} records inserted into database.{1}".format(len(strikeData), "\n\t" + '*' * 25))
 
-            with open(CONFIG_DIR + "database.txt", 'a+') as file:
+            with open(CONFIG_DIR + "database.txt", 'a+') as file:  # Append date to file when it has been added to the database
                 file.write(inputFile[:8] + '\n')
         else:
             logging.info(inputFile + " already in database.")
@@ -351,7 +434,7 @@ def file_to_db(sourceFile = None, dbName = None):
     conn.close()
 
 
-def download_date(fileName, days = None, override = False):
+def download_file_by_date(fileName, days = None, override = False):
     """
     Every day has a file which contains all the Unusual Whale plays issued on that day
 
@@ -378,7 +461,7 @@ def download_date(fileName, days = None, override = False):
         logging.info(fileName + " exists.\n")
         return False
 
-    else:
+    else:  # If override is true, file will be downloaded even if it exists
         return True
 
 
@@ -396,26 +479,6 @@ def download_plays(end = None, startDate = None, after = None, before = None, ov
     Has no return value
     """
 
-    with open(CONFIG_DIR + "tokens.txt", 'r') as tokens:
-        userToken = tokens.readline().split("\"")[1]
-        channelID = tokens.readline().split("\"")[1]
-        dllLocation = tokens.readline().split("\"")[1]
-
-    # Exit if any of these fields are blank, exit. All three are necessary for the program to work
-    if userToken == '' or dllLocation == '' or channelID == '':
-        init()  # Only needed for Windows
-        print(f"{Fore.CYAN}\nPlease insert the below items in the \"UnusualWhales/config/tokens.txt\" and restart program:\n" +
-              f"\tDiscord user token\n\tThe location of the DiscordChatExporter.Cli.dll file{Style.RESET_ALL}")
-        deinit()
-        exit(1)
-
-    ######################################
-    with open(CONFIG_DIR + "tradingHolidays.txt", 'r') as holidays:
-        [HOLIDAY_LIST.append(i[:-1]) for i in holidays.readlines()]  # Dates are recorded as 07-17-20, the [:-1] takes off the null terminator
-
-    with open(CONFIG_DIR + "badDays.txt", 'r') as file:  # Dates where nothing was uploaded but should have due to error etc.. None so far
-        [BAD_DATES.append(i[:-1]) for i in file.readlines()]  # Dates are recorded as 07-17-20, the -1 takes off the null terminator
-
     ######################################
 
     if startDate is None:
@@ -424,7 +487,7 @@ def download_plays(end = None, startDate = None, after = None, before = None, ov
         sdate = date(startDate[0], startDate[1], startDate[2])  # Year, month and date
 
     if type(end) == date:
-        edate = date(end[0], end[1], end[2])
+        edate = date(end[0], end[1], end[2])  # Year, month, date
     elif type(end) is int:
         edate = sdate + timedelta(days = end)
     else:  # If it is a new day and before the market opens, don't include the current day
@@ -433,21 +496,23 @@ def download_plays(end = None, startDate = None, after = None, before = None, ov
         else:
             edate = date.today()
 
-    delta = edate - sdate
+    delta = edate - sdate  # Delta is the change or number of days to count forawrd from the starting date
 
     ######################################
 
     # starts at s(tart)date and moves delta days forward to get range of dates
     for i in range(delta.days + 1):
         os.chdir(FILE_DIR)
+
         days = sdate + timedelta(days = i)
         month = days.timetuple()[2]  # Time tuple returns a tuple of year, day month
         day = days.timetuple()[1]
         year = str(days.timetuple()[0])[-2:]
+
         dateFileName = "{0:02d}-{1:02d}-{2}".format(day, month, year)  # Month and date are formatted to two decimal places
         fileName = dateFileName + ".json"
 
-        if download_date(fileName, days):
+        if download_file_by_date(fileName, days):
             # If the file exists and the override is set to True OR the file doesnt exists, download the files
             if (os.path.exists(FILE_DIR + fileName) and override is True) or (not os.path.exists(BASE_DIR + '/' + fileName)):
                 if override:
@@ -467,18 +532,20 @@ def download_plays(end = None, startDate = None, after = None, before = None, ov
 
                 # arguments passed to terminal to execute the dotnet command necessary to capture discord plays
                 terminalCommands = ["dotnet",  # invokes dotnet command with the following as arguments
-                                    dllLocation,  # location of exporter program
+                                    DLL_LOCATION,  # location of exporter program
                                     "export",  # option  that specifies we will be exporting a channel
-                                    "-t", userToken,  # use authorization token of user's account
-                                    "-c", channelID,  # channel ID of channel to be exported
+                                    "-t", USER_TOKEN,  # use authorization token of user's account
+                                    "-c", CHANNEL_ID,  # channel ID of channel to be exported
                                     "-o", FILE_DIR + fileName,  # output file for the exported data
                                     "--dateformat", "\"dd-MM-yy hh:mm\"",  # date format for the after and before parameters
                                     "--after", afterDate,  # Get all channel messages after this date and time
                                     "--before", beforeDate,  # Get all channel messages before this date and time
                                     "-f", "json"]  # HtmlDark, HtmlLight, PlainText Json or Csv
 
+                # Show the terminal commands for each play
                 [logging.debug(i) for i in terminalCommands]
 
+                # Subprocess take a list as an argument
                 subprocess.call(terminalCommands)
 
                 if not CONFIG_DIR + fileName:
@@ -498,30 +565,39 @@ def main():
 
     Has no return value
     """
+    
     # Logging displays select info to the console
     # Debug, info, warning, error, critical is the order of levels
     logging.basicConfig(level = logging.DEBUG, format = "%(levelname)s -  %(message)s")
     logging.disable(logging.ERROR)  # Only show warning and higher, disables levels below warning
 
-    prepare_files()
-    error_log()
+    prepare_files()  # Files need to be prepared and created so program can work properly
+    error_log()  # Shows if errors occurred when parsing plays
 
-    print(f"\n{Fore.BLUE}Plays will be collected and added to the database.\nData is being gathered, wait for it to finish....{Style.RESET_ALL}")
+    # Fore.color changes the color of the text, Style.reset changes the color back to white
+    print(f"\n{Fore.BLUE}Plays will be collected and added to the database.\nData is being gathered, wait for it to finish....\n{Style.RESET_ALL}")
+
     download_plays()
     file_to_db()
     remove_extras_from_db(DEFAULT_DB)
 
 
 # GLOBAL DATA
-DB_LIST = []
-BAD_DATES = []
-HOLIDAY_LIST = []
 BASE_DIR = os.getcwd() + "/UnusualWhales"  # Where the files for this program will be stored
 CONFIG_DIR = BASE_DIR + "/config/"
 FILE_DIR = BASE_DIR + "/historyByDate/"
+DOWNLOAD_DIR = BASE_DIR + "/downloads/"
 DEFAULT_DB = "WhalePlays.db"
+
+DB_LIST = []
+BAD_DATES = []
+HOLIDAY_LIST = []
+USER_TOKEN = ""
+CHANNEL_ID = "721759406089306223"
+DLL_LOCATION = CONFIG_DIR + "DiscordChatExporter.CLI/DiscordChatExporter.Cli.dll"
+
 # The below list contains the column titles for the SQL database entries.
-#   There are two other columns createdDate and createdTime that are added on in file_to_db function.
+#   There are two other columns, createdDate and createdTime, that are added on in file_to_db function.
 STRIKEINFO = ["Symbol",  # string
               "Date",  # string or int int int
               "Style",  # string
@@ -537,6 +613,8 @@ STRIKEINFO = ["Symbol",  # string
               "ChangeCost"]  # int, (price - strike)
                 # createdDate is added on in file_to_db function
                 # createdTime is added on in file_to_db function
+
+# Make readme
 
 if __name__ == "__main__":
     start = time.time()  # Used to measure run time of the program
