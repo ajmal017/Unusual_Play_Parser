@@ -695,7 +695,3 @@ if __name__ == "__main__":
     start = time.time()  # Used to measure run time of the program
     main()
     print("\n***All done, total runtime: {0:.05} seconds***".format(time.time() - start))
-
-# import pandas_finance as pf
-#
-# pf.Equity(ticker).sector
