@@ -1,23 +1,22 @@
 # TODO
-# Add sector for each play
 # Add gui and progress bar(s)
 # Add search by field name
 # Add command line access
 # Fetching the plays individually takes extra much time.
 #   Scan in whole chat history and separate by date
 # Incorporate the bid and ask into the Moneyness
-# turn get_moneyness into an sql update
-# function set_db
-# rdsa and rds remove a if rdsa fails for rds
-# add function to update new column wit data
-# create error log for rds rdsa
+# Add function to update new column with data
+# Create error log for rds rdsa
+# If ticker fails, try with one less letter and try with a period before the last letter
+# Add a file cleanup function and searching for json duplicate entries
+# subCategorize foreign etfs and indexes
+# except IndexError: return 0 in get_expiration_price, add bad symbols to a bad_list
+# def check_date_for_adding_to_db(dateFile): # add time last run for checking todays plays
+# Rename symbols that need a name change or alteration
+#   Replace bgg with BGGSQ in Industrials, chk to chkq in energy, LLEX to llexq in energy etc
+# Add "IsETF" column to database
+# Add
 
-# Emoji Guide
-# :rotating_light: - Options expire within the week | ord = 128680
-# :rocket: - Extra Unusual Movement | ord = 128640
-# :slot_machine: - Lottos | ord = ?
-# :stopwatch: - Intraday play | ord = ?
-# :calendar_spiral: - Overnights/Extended play | ord = 128467
 
 # https://github.com/Tyrrrz/DiscordChatExporter/wiki/
 # Created the discord scraper, DiscordChatExporter
@@ -38,119 +37,41 @@ from zipfile import ZipFile  # Unzipping the CLI download
 import requests  # Downloading the CLI and db browser files
 from subprocess import call  # Used to issues terminal commands
 import webbrowser  # Open file in the user's web browser
-from pandas_finance import Equity
 import configparser
 from pathlib import Path  # Using path.name to get access to filename in url
 from datetime import date, timedelta  # Very useful in calculations involving dates
 from colorama import Style, Fore, init, deinit  # For turning the terminal text different colors
 import openpyxl
-from yahoo_oauth import OAuth2
+import bs4 as bs
+import CleanUp
 
 
-# def list_users(token):
-#     """
-#     Function
-#
-#     Token parameter
-#
-#     Return
-#     """
-#
-#     # token is the access token i save in the DB
-#     oauth_token = oauth.Token(token.token, token.secret)
-#     consumer = oauth.Consumer(key=settings.OATH_CONSUMER_KEY,
-#                               secret=settings.OATH_SECRET)
-#     client = oauth.Client(consumer, oauth_token)
+def count_successful_plays_by_sector():
+    """
+    Shows the number of successful plays to date per sector
 
+    Takes no parameters
 
-def stock_excel_to_json():
-    new_dict = []
-    wb = openpyxl.load_workbook(BASE_DIR + "UnusualWhales/config/json_xlsx/stocks/DB_Stocks_with_Sectors.xlsx")
+    Returns no values
+    """
 
-    for i in range(wb["Sheet1"].max_row):
-        # print(i)
-        a = wb["Sheet1"]['A'][i].value
-        b = wb["Sheet1"]['B'][i].value
-
-        new_dict.append(dict(zip(keys, (a, b))))
-        print(i, a, b)
-
-        json_string_object = json.dumps(new_dict, indent = 4, sort_keys = True)
-
-        with open(BASE_DIR + "/UnusualWhales/config/json_xlsx/JSONS/stock_json.json", 'w') as file:
-            file.write(json_string_object)
-
-        wb.close()
-
-
-def sector_excel_to_json():
-    sectors = ['Materials',
-               'Financials',
-               'Technology',
-               'Energy',
-               'Healthcare',
-               'Consumer Staples',
-               'Utilities',
-               'Industrials',
-               'Consumer Discretionary',
-               'Real Estate',
-               'Communications']
-
-    sector_base = CONFIG_DIR + "json_xlsx"
-
-    for name in sectors:  # for every item in the list sectors
-        os.chdir(sector_base + name)  # cd to the sector folder
-        print(os.getcwd())  # print the sector folder
-
-        new_dict = []
-
-        for file in os.listdir():  # list the files in the folder
-            keys = ["name", "sector"]
-
-            if file != ".DS_Store" and not file.startswith("~$"):
-                # print('\t' + file)
-
-                wb = openpyxl.load_workbook(file)
-
-                for cell_row in wb["Overview"]["A"][1:]:
-                    if {"name": cell_row.value, "sector": name} not in new_dict:
-                        new_dict.append(dict(zip(keys, (cell_row.value, name))))
-
-                wb.close()
-
-        with open(sector_base + "JSONS/" + name + ".json", 'a+') as json_file_writer:
-            json_file_writer.write(json.dumps(new_dict, indent = 4, sort_keys = True))
-
-    #        print('$' * 30)
-
-    os.chdir(sector_base)
-
-
-def get_sectors_from_db():
-    conn = sqlite3.connect(CONFIG_DIR + "WhalePlays.db")
+    conn = sqlite3.connect(CONFIG_DIR + DEFAULT_DB)
     cur = conn.cursor()
-    cur.execute("SELECT DISTINCT symbol, sector FROM Plays")
-    data = cur.fetchall()
+    plays = []
 
-    new_dict = []
-    keys = ["name", "sector"]
+    for i in STOCK_SECTORS:
+        s = "\"%s\"" % i
+        cur.execute("SELECT COUNT (*) FROM Plays WHERE moneyness > 0 AND sector = %s" % s)
+        data = cur.fetchall()[0][0]
+        plays.append(data)
 
-    for d in data:
-        new_dict.append(dict(zip(keys, d)))
+    print("Number of successful plays per sector")
 
-    [print(i) for i in new_dict[:20]]
-
-    with open(CONFIG_DIR + "sector_list.txt", 'w') as file:
-        file.write(json.dumps(new_dict, indent = 4, sort_keys = True))
-
-    # "name": "AAPL", "sector": "Technology
-
-    conn.commit()
-    cur.close()
-    conn.close()
+    for i in range(len(STOCK_SECTORS)):
+        print(STOCK_SECTORS[i] + ": " + str(plays[i]))
 
 
-def error_log():
+def error_log(erase = False):
     """
     Plays that aren't captured by the current regex patterns are logged to be studied. Helps in making new regexes.
 
@@ -180,17 +101,8 @@ def error_log():
                 # Prints plays that were not captured by regex
                 [print(textList[i] + '\n') for i in range(len(textList))]
 
-
-def sleep_two_seconds():
-    """
-    Pauses activity for two seconds, to avoid rate limiting
-
-    No parameters are used
-
-    Returns no values
-    """
-
-    time.sleep(2.2)
+    if erase == True:
+        open(CONFIG_DIR + "designChangeLog.txt", 'w').close()
 
 
 def prepare_files():
@@ -282,7 +194,7 @@ def prepare_files():
         [DB_LIST.append(i[:-1]) for i in file.readlines()]  # Dates are recorded as 07-17-20, the [:-1] takes off the null terminator
 
 
-def get_sector(ticker):
+def get_sector(ticker, hide_found = False):
     """
     Gives the financial sector of the stock symbol passed in
 
@@ -291,8 +203,9 @@ def get_sector(ticker):
     Returns the ticker symbol or returns "ETF" since etf's don't have a sector according to pandas_finance
     """
 
-    sector_base = CONFIG_DIR + "/json_xlsx/JSONS/"
-    os.chdir(sector_base)
+    sector_base = CONFIG_DIR + "json_xlsx/"
+    # print("Sector: ", sector_base)
+    os.chdir(sector_base + "JSONS/")
 
     for sector_json_file in os.listdir():  # Change directory to folder with json sector files
         if sector_json_file.endswith(".json"):
@@ -300,88 +213,68 @@ def get_sector(ticker):
                 json_file_object = json.loads(json_file_reader.read())
 
                 for entry in json_file_object:
-                    if ticker in entry.get("name"):
-                        print(ticker + " found, sector is " + entry.get("sector"))
+                    if ticker is None:
+                        input(ticker + ":")
 
-                        return entry.get("sector")
+                    if ticker.upper() == entry.get("name"):
+                        if not hide_found:
+                            # print(ticker + " found, sector is " + entry.get("sector"))
+                            pass
 
-    else:
-        try:
-            return Equity(ticker).sector
+                        if sector_json_file != "bad_symbols.json":
+                            return entry.get("sector")
+                        else:
+                            return "N/A"
 
-        except:
-            try:
-                return Equity(ticker[:-1]).sector
+                    else:
+                        # print("Ticker:", ticker.upper())
+                        # print("Entry.name:", entry.get("name"))
+                        pass
+    try:
+        """
+        Consumer Staples, Consumer Defensive
+        Financials, Financial Services
+        Information Technology, Technology
+        Communication, Communications, Communication Services
+        Consumer Discretionary, Consumer Cyclical
+        Health Care, Healthcare, Health
+        Materials, Basic Materials
+        Industrials, Industrial Services
+        Energy
+        Utilities
+        Real Estate
+        """
+        r = requests.get("https://finance.yahoo.com/quote/XPEV/profile?p=%s" % ticker)
+        soup = bs.BeautifulSoup(r.text, "html.parser")
 
-            except:
-                # write to error log
-                pass
+        s = soup.find("span", text = "Sector(s)")
+        s = s.find_next_sibling().text.replace('\n', '')
 
-        finally:
-            return None
-
-
-def clean_up_sector(sector):
-    # STOCK_SECTORS = ["Communications",
-    #                  "Consumer Discretionary",
-    #                  "Consumer Staples",
-    #                  "Technology",
-    #                  "Energy",
-    #                  "Healthcare",
-    #                  "Industrials",
-    #                  "Materials",
-    #                  "Utilities",
-    #                  "Real Estate"
-    #                  """
-    #                  Consumer Staples, Consumer Defensive
-    #                  Financials, Financial Services
-    #                  Information Technology, Technology
-    #                  Communication Communications, Communication Services
-    #                  Consumer Discretionary, Consumer Cyclical
-    #                  Health Care, Healthcare, Health
-    #                  Materials, Basic Materials
-    #                  Industrials, Industrial Services
-    #                  """]
-
-    if sector in STOCK_SECTORS:
-        return sector
-
-    else:
-        if sector == "Communication Services":
-            return "Communications"
-
-        elif sector == "Consumer Defensive":
-            return "Consumer Staples"
-
-        elif sector == "Consumer Cyclical":
+        if s == "Consumer Cyclical":
             return "Consumer Discretionary"
 
-        elif "energy" in sector.lower():
-            return "Energy"
+        elif s == "Consumer Defensive":
+            return "Consumer Staples"
 
-        elif "financial" in sector.lower():
+        elif s == "Financial Services":
             return "Financials"
 
-        elif "health" in sector.lower():
-            return "Healthcare"
+        elif s == "Communication Services":
+            return "Communications"
 
-        elif "industrial" in sector.lower():
-            return "Industrials"
-
-        elif "material" in sector.lower():
+        elif s == "Basic Materials":
             return "Materials"
 
-        elif "real" in sector.lower():
-            return "Real Estate"
-
-        elif "tech" in sector.lower():
-            return "Technology"
-
-        elif "utilit" in sector.lower():
-            return "Utilities"
+        elif s == "Communication Services":
+            return "Communications"
 
         else:
+            print(ticker + " not found.")
             return None
+
+    except KeyError:
+        print(ticker + " not found.")
+        return None
 
 
 def download_file(file_url):
@@ -418,7 +311,7 @@ def download_file(file_url):
         return False
 
 
-def add_date_to_db(dateFile):
+def check_date_for_adding_to_db(dateFile):
     """
     Checks if the file represented by the parameter has already been added to the database
 
@@ -429,16 +322,16 @@ def add_date_to_db(dateFile):
 
     today_string = "{0:02d}-{1:02d}-{2}".format(time.localtime()[1], time.localtime()[2], str(time.localtime()[0])[-2:])
 
-    if dateFile[:8] != today_string and dateFile in DB_LIST:
-        return False
-
-    elif dateFile[:8] == today_string and time.localtime()[3:5] < (13, 1):
-        logging.error(dateFile + " is today, probably new plays so now creating...")
+    if dateFile not in DB_LIST:
         return True
 
-    elif dateFile[:8] == today_string and time.localtime()[3:5] >= (13, 1):
-        logging.error(dateFile + " is today, but no plays because it is after market close.")
-        return False
+    # elif dateFile[:8] == today_string and time.localtime()[3:5] < (13, 1):
+    #     logging.error(dateFile + " is today, probably new plays so now creating...")
+    #     return True
+    #
+    # elif dateFile[:8] == today_string and time.localtime()[3:5] >= (13, 1):
+    #     logging.error(dateFile + " is today, but no plays because it is after market close.")
+    #     return False
 
     elif dateFile in DB_LIST:
         return False
@@ -447,51 +340,25 @@ def add_date_to_db(dateFile):
         return True
 
 
-# def get_expiration_price(details):
-#     """
-#     Function gets the price at expiration
-#
-#     Details parameter is the list that holds the information for the strike play
-#
-#     Returns the value at expiration or null if expiration not yet passed
-#     """
-#
-#     new_date = date.today().timetuple()
-#     new_date = "{0:02d}-{1:02d}-{2:02}".format(new_date[0], new_date[1], new_date[2])
-#
-#     # After 1pm of the trading day, the price is then used.
-#     # Or is the expiration day has already passed, it doesnt matter the time
-#     if (details[1] < new_date) or (details[1] == new_date and time.localtime()[3] >= 13):
-#         try:
-#             return Equity(details[0]).close[details[1]]
-#
-#         except KeyError:
-#             return None
-#
-#     else:  #
-#         return None
-
-
 def get_expiration_price(details):
     """
+    Function gets the price at expiration
 
+    Details parameter is the list that holds the information for the strike play
 
-
-
+    Returns the value at expiration or null if expiration not yet passed
     """
 
     symbol = details[0]
-    new_date = date.today().timetuple()
-    new_date = "{0:02d}-{1:02d}-{2:02}".format(new_date[0], new_date[1], new_date[2])
+    todays_date = date.today().timetuple()
+    todays_date = "{0:02d}-{1:02d}-{2:02}".format(todays_date[0], todays_date[1], todays_date[2])
 
-    from_date = date
-    to_date = date
+    # After 1pm of the trading day, the price is then used.
+    # Or is the expiration day has already passed, it doesnt matter the time
+    if(details[1] < todays_date) or (details[1] == todays_date and time.localtime()[3] >= 13):
+        params = {"api_token": EOD_API_KEY, "from": details[1], "to": details[1]}
 
-    if(details[1] < new_date) or (details[1] == new_date and time.localtime()[3] >= 13):
-        params = {"api_token": EOD_API_KEY, "from": from_date, "to": to_date}
-
-        try:
-
+        try:  # https://eodhistoricaldata.com/api/eod/%s.US?api_token=5f5438fb96d006.32507074&from=2020-09-14&to=2020-09-14
             req = requests.get("https://eodhistoricaldata.com/api/eod/%s.US?" % symbol, params = params)
 
             eod_regex = re.compile(r"""(?P<Date>\d{4}\-\d{2}\-\d{2}),
@@ -506,7 +373,12 @@ def get_expiration_price(details):
             req_data.remove(req_data[0])
             req_data.remove(req_data[-1])
 
-            return (re.match(eod_regex, req_data.pop())).group("Close")
+            try:
+                exp = (re.match(eod_regex, req_data.pop())).group("Close")
+                return exp
+
+            except IndexError:
+                return 0
 
         except KeyError:
             return None
@@ -524,24 +396,11 @@ def get_moneyness(details):
     Returns the percentage the play was in (positive value) or out (negative value) of the money or None if not expired
     """
 
-    # conn = sqlite3.connect(CONFIG_DIR + DEFAULT_DB)
-    # cur = conn.cursor()
-    #
-    # cur.execute("UPDATE Plays SET Moneyness = (exp_price /  strike) - 1 WHERE style = \"C\" and Moneyness is NULL AND exp_price IS NULL")
-    # cur.execute("UPDATE Plays SET Moneyness = 1 - (exp_price /  strike) WHERE style = \"P\" and Moneyness is NULL AND exp_price IS NULL")
-    #
-    # conn.commit()
-    # cur.close()
-    # conn.close()
-
-    # UPDATE Plays SET Moneyness = (exp_price /  strike) - 1 WHERE style = "C" and Moneyness is NULL
-    # UPDATE Plays SET Moneyness = 1 - (exp_price /  strike) WHERE style = "P" and Moneyness is NULL
-
     if details[2].lower() == "c" and details[14] is not None:
-        return ((details[14] / details[3]) - 1)
+        return ((float(details[14]) / float(details[3]) - 1))
 
     elif details[2].lower() == "p" and details[14] is not None:  # details[2] == "P".lower():
-        return (1 - (details[14] / details[3]))
+        return (1 - (float(details[14]) / float(details[3])))
 
     else:
         return None
@@ -626,7 +485,7 @@ def get_hash(fileName, whichHash = 'md5'):
     return hashOutput()
 
 
-def file_to_db(sourceFile = None, dbName = None):
+def plays_from_file_to_db(sourceFile = None, dbName = None):
     """
     Takes a file and extracts the option play data adding it to the database of all plays
 
@@ -683,7 +542,7 @@ def file_to_db(sourceFile = None, dbName = None):
     # The newer files use a different pattern
     backup_pattern = re.compile(r'''(?P<Symbol>\s*\$?\w{1,5})\s*
                                     (?P<Date>\d{4}-\d{2}-\d{2})\s*
-                                    (?P<Style>\w)\s*\$
+                                    (?P<Style>\w)\s*\$?
                                     (?P<Strike>\d{1,5}(\.\d{1,2})?)\s*Bid-Ask:\s*\$
                                     (?P<Bid>\d{1,5}(\.\d{1,2})?)\s*-\s*\$
                                     (?P<Ask>\d{1,5}(\.\d{1,2})?)\s*Interest:\s*
@@ -711,12 +570,15 @@ def file_to_db(sourceFile = None, dbName = None):
     for inputFile in argList:  # Checks every file in arglist
         print("Working with", inputFile)
 
-        if add_date_to_db(inputFile[:8]):  # Just check for the digits of file name and not the extension
+        os.chdir(FILE_DIR)
+
+        if check_date_for_adding_to_db(inputFile[:8]):  # Just check for the digits of file name and not the extension
             logging.info("Checking file: [{0}]".format(inputFile))
             strikeData = []  # Will hold the information after data is scraped from html files
             strikePlays = []  # Will hold the data as received from the files, before cleaning up text
 
             # logging.info("USING JSON FILES")
+            # print("File location: ", os.path.abspath(inputFile))
 
             with open(inputFile, 'r') as jsonfile:
                 parsejson = json.loads(jsonfile.read())  # ParseJson holds the json loaded from the datefile where the json was downloaded
@@ -748,15 +610,15 @@ def file_to_db(sourceFile = None, dbName = None):
             for play in range(len(strikeData)):  # each play is scraped for the play strike, price, date etc
                 details = []  # The data captured will be stored here and then passed to the database
                 match = pattern.match(strikeData[play])  # A single play is captured here and the data about it will be parsed through regular expression
-                logging.debug("FIRST MATCH")
+                # logging.debug("FIRST MATCH")
 
                 if match is None:  # if the way the data is organized in the html file changes, the pattern will fail
                     match = backup_pattern.match(strikeData[play])  # Backup pattern is used
-                    logging.debug("SECOND MATCH")
+                    # logging.debug("SECOND MATCH")
 
                     if match is None:
                         match = backup__pattern.match(strikeData[play])
-                        logging.debug("THIRD MATCH")
+                        # logging.debug("THIRD MATCH")
 
                         if match is None:  # if the backup pattern fails
                             logging.debug(input("Stop here and proceed with caution, match is None."))
@@ -768,6 +630,8 @@ def file_to_db(sourceFile = None, dbName = None):
 
                             with open(CONFIG_DIR + "designChangeLog.txt", 'a+') as designChangeLog:
                                 designChangeLog.write(strikeData[play] + "#####")
+
+                            continue
 
                 for group_number in range(11):
                     if group_number <= 2:  # The first three are strings
@@ -808,7 +672,7 @@ def file_to_db(sourceFile = None, dbName = None):
     conn.close()
 
 
-def download_date_file(file_name, days = None, override = []):
+def check_if_need_download_date_file(file_name, days = None, override = []):
     """
     Every day has a file which contains all the Unusual Whale plays issued on that day
 
@@ -841,6 +705,10 @@ def download_date_file(file_name, days = None, override = []):
         logging.info(file_name + " exists but override is signaled, creating....\n")
         return True
 
+    elif os.path.exists(FILE_DIR + file_name) and file_name[:8] not in override:
+        logging.info(file_name + " exists, will not creating....\n")
+        return False
+
     elif file_name[:8] == today_string and time.localtime()[3:5] < (13, 1):
         logging.info(file_name + " is today, probably new plays so now creating...\n")
         return True
@@ -858,7 +726,7 @@ def download_plays(end = None, startDate = None, after = None, before = None, ov
     Using the DiscordChatExporter, the discord chat messages are exported to a json file. A file for each date.
 
     FileType is a required argument for the output file type: HtmlDark, HtmlLight, PlainText Json or Csv
-    End is an optional parameter specifying the number of days to capture data for
+    End is an optional parameter specifying the number of days to capture data for or date to end at yyyy-mm-dd
     StartDate is an optional parameter which is the date to begin at, will default to 06-16-20, the first day the plays are available
     After is an optional parameter specifying that all plays after that time will be captured
     Before is an optional parameter specifying that all plays before that time will be captured
@@ -909,13 +777,13 @@ def download_plays(end = None, startDate = None, after = None, before = None, ov
         date_file_name = "{0:02d}-{1:02d}-{2}".format(day, month, year)  # Month and date are formatted to two decimal places
         file_name = date_file_name + ".json"
 
-        if download_date_file(file_name, days, override):
+        if check_if_need_download_date_file(file_name, days, override):
             # If the file exists and the override is set to True OR the file doesnt exists, download the files
             if file_name[:8] in override:
                 logging.info(file_name + " exists but override is signaled, creating...")
-
-            else:
-                logging.info(file_name + " does not exists, creating...")
+            #
+            # else:
+            #     logging.info(file_name + " does not exists, creating...")
 
             # If playdate, after and before are all passed in as parameters
             if after is not None and before is not None and startDate is not None:
@@ -967,19 +835,18 @@ def main():
 
     # Logging displays select info to the console
     # Debug, info, warning, error, critical is the order of levels
-    logging.basicConfig(level = logging.DEBUG, format = "%(levelname)s -  %(message)s")
-    # logging.disable(logging.WARNING)  # Only show warning and higher, disables levels below warning
+    # logging.basicConfig(level = logging.DEBUG, format = "%(levelname)s -  %(message)s")
+    logging.disable(logging.WARNING)  # Only show warning and higher, disables levels below warning
 
     prepare_files()  # Files need to be prepared and created so program can work properly
-    error_log()  # Shows if errors occurred when parsing plays
+    error_log(True)  # Shows if errors occurred when parsing plays
 
     # Fore.color changes the color of the text, Style.reset changes the color back to white
     print(f"\n{Fore.BLUE}Plays will be collected and added to the database.\nData is being gathered, wait for it to finish....\n{Style.RESET_ALL}")
 
-    # download_plays()
-    # file_to_db()
+    download_plays()
+    plays_from_file_to_db()
     remove_extras_from_db(DEFAULT_DB)
-    file_to_db("06-16-20.json")
 
 
 STOCK_SECTORS = ["Communications",
@@ -991,18 +858,7 @@ STOCK_SECTORS = ["Communications",
                  "Industrials",
                  "Materials",
                  "Utilities",
-                 "Real Estate"
-                 """
-                 Consumer Staples, Consumer Defensive
-                 Financials, Financial Services
-                 Information Technology, Technology
-                 Communication Communications, Communication Services
-                 Consumer Discretionary, Consumer Cyclical
-                 Health Care, Healthcare, Health
-                 Materials, Basic Materials
-                 Industrials, Industrial Services
-                 """]
-
+                 "Real Estate"]
 
 # GLOBAL DATA
 BASE_DIR = os.getcwd() + "/UnusualWhales"  # Where the files for this program will be stored
@@ -1011,7 +867,7 @@ FILE_DIR = BASE_DIR + "/historyByDate/"
 DOWNLOAD_DIR = BASE_DIR + "/downloads/"
 DEFAULT_DB = "WhalePlays.db"
 DEFAULT_DB_LOCATION = CONFIG_DIR + DEFAULT_DB
-
+KEYS = ["name", "sector"]
 DB_LIST = []
 BAD_DATES = []
 HOLIDAY_LIST = []
@@ -1023,9 +879,8 @@ config = configparser.ConfigParser()
 config.read(CONFIG_DIR + "CONFIG_APIS.ini")
 EOD_API_KEY = config["EOD_HISTORICAL"]["LIVE_KEY"]
 
-
 # The below list contains the column titles for the SQL database entries.
-#   There are two other columns, createdDate and createdTime, that are added on in file_to_db function.
+#   There are two other columns, createdDate and createdTime, that are added on in plays_from_file_to_db function.
 STRIKEINFO = ["Symbol",  # string
               "Date",  # string or int int int
               "Style",  # string
@@ -1039,10 +894,6 @@ STRIKEINFO = ["Symbol",  # string
               "Price",  # int
               "ChangePercent",  # int, (price - strike) / price
               "ChangeCost"]  # int, (price - strike)
-# createdDate is added on in file_to_db function
-# createdTime is added on in file_to_db function
-# Exp_price will be added through a separate function at the moment
-# Moneyness will be added through a separate function at the moment
 
 if __name__ == "__main__":
     start = time.time()  # Used to measure run time of the program
