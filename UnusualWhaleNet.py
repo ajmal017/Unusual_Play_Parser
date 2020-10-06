@@ -15,7 +15,11 @@
 # Rename symbols that need a name change or alteration
 #   Replace bgg with BGGSQ in Industrials, chk to chkq in energy, LLEX to llexq in energy etc
 # Add "IsETF" column to database
-# Add
+# Update option chain for OI
+# Check database lists for blanks
+# Ask to view missed regex captures befre continuing with plays.
+# except IndexError: return 0
+#   What conditions cause IndexError?
 
 
 # https://github.com/Tyrrrz/DiscordChatExporter/wiki/
@@ -61,7 +65,7 @@ def count_successful_plays_by_sector():
 
     for i in STOCK_SECTORS:
         s = "\"%s\"" % i
-        cur.execute("SELECT COUNT (*) FROM Plays WHERE moneyness > 0 AND sector = %s" % s)
+        cur.execute("SELECT COUNT (*) FROM Plays WHERE moneyness > 0 AND sector = %s AND date LIKE \"2020-09\"" % s)
         data = cur.fetchall()[0][0]
         plays.append(data)
 
@@ -69,6 +73,9 @@ def count_successful_plays_by_sector():
 
     for i in range(len(STOCK_SECTORS)):
         print(STOCK_SECTORS[i] + ": " + str(plays[i]))
+
+    # SELECT * FROM Plays WHERE moneyness > 0 AND date LIKE "2020-09%" ORDER BY sector
+    # SELECT COUNT (*) FROM Plays WHERE moneyness > 0 AND sector = "Energy" AND date LIKE "2020-09%"
 
 
 def error_log(erase = False):
@@ -93,7 +100,7 @@ def error_log(erase = False):
                 logging.info("No errors reported, no new patterns necessary.")
 
             else:
-                allText = allText.split("#####")
+                allText = allText.split("\n#####\n")
 
                 for i in range(len(allText)):
                     textList.append(allText[i])
@@ -101,7 +108,7 @@ def error_log(erase = False):
                 # Prints plays that were not captured by regex
                 [print(textList[i] + '\n') for i in range(len(textList))]
 
-    if erase == True:
+    if erase:
         open(CONFIG_DIR + "designChangeLog.txt", 'w').close()
 
 
@@ -629,7 +636,7 @@ def plays_from_file_to_db(sourceFile = None, dbName = None):
                             logging.error('*' * 20 + '\n' + strikeData[play] + '\n' + '*' * 20)
 
                             with open(CONFIG_DIR + "designChangeLog.txt", 'a+') as designChangeLog:
-                                designChangeLog.write(strikeData[play] + "#####")
+                                designChangeLog.write(strikeData[play] + "\n#####\n")
 
                             continue
 
@@ -696,6 +703,9 @@ def check_if_need_download_date_file(file_name, days = None, override = []):
     elif file_name[:8] in BAD_DATES:
         logging.info(file_name + " is a trading holiday, skipping.\n")
         return False
+
+    elif file_name[:8] == today_string:
+        return True  # Need to add time last run to save unnecessary calls
 
     elif not os.path.exists(FILE_DIR + file_name):
         logging.info(file_name + " does not exists, creating...\n")
